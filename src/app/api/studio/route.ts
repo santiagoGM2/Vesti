@@ -213,11 +213,24 @@ export async function POST(request: Request) {
       return result.path;
     }
     let path: string;
-    if (body.action === "clean")
-      path = await generate("edit", {
-        image: await imageData(body.path),
-        prompt: `Create a premium ecommerce product photograph of ONLY the ${body.garment.name} (${body.garment.category}, ${body.garment.color}). Extract it completely from the person and original scene. Present the full garment centered, straight and naturally shaped on a seamless neutral white background, with soft even studio light and no cast shadow. Smooth incidental wrinkles and visual creases while preserving the exact cut, proportions, color, fabric texture, seams, patterns, hardware and visible branding. Remove hands, body parts, hangers, furniture and every background object. Do not redesign the garment, add details, alter logos or invent hidden construction.`,
+    if (body.action === "clean") {
+      // Studio finish is intentionally local and free. Analysis already stores a
+      // tight crop; normalize it on a white canvas without spending FASHN credits.
+      const source = await read(body.path);
+      const normalized = await sharp(source, { limitInputPixels: 40000000 })
+        .rotate()
+        .resize({ width: 900, height: 900, fit: "contain", background: "#ffffff" })
+        .flatten({ background: "#ffffff" })
+        .png()
+        .toBuffer();
+      const hash = cacheKey(user.id, `local-studio-v2:${body.path}`, providerKey);
+      path = `${user.id}/studio-${hash}.png`;
+      const saved = await db.storage.from("vesti-private").upload(path, normalized, {
+        contentType: "image/png",
+        upsert: true,
       });
+      if (saved.error) throw new StudioError("No pudimos guardar la foto de estudio.");
+    }
     else {
       const state = record.data;
       if (!state.profile.body)
@@ -246,41 +259,34 @@ export async function POST(request: Request) {
           (order[a.category] ?? 6) - (order[b.category] ?? 6) ||
           a.id.localeCompare(b.id),
       );
-      const products = await Promise.all(
-        garments.map((g) => imageData(g.path)),
-      );
+      const productBuffers = await Promise.all(garments.map((g) => read(g.path)));
+      // Compose every selected piece into one clean white reference sheet. One
+      // try-on request can then dress the model with the complete look.
+      const slots = Math.ceil(Math.sqrt(productBuffers.length));
+      const tile = 620;
+      const canvas = sharp({
+        create: {
+          width: slots * tile,
+          height: slots * tile,
+          channels: 4,
+          background: "#ffffff",
+        },
+      });
+      const composites = await Promise.all(productBuffers.map(async (buffer, index) => ({
+        input: await sharp(buffer).rotate().resize({ width: tile - 40, height: tile - 40, fit: "contain", background: "#ffffff" }).png().toBuffer(),
+        left: (index % slots) * tile + 20,
+        top: Math.floor(index / slots) * tile + 20,
+      })));
+      const sheet = await canvas.composite(composites).png().toBuffer();
+      const productImage = `data:image/png;base64,${sheet.toString("base64")}`;
       let modelImage = await imageData(state.profile.body);
       path = state.profile.body;
-      if (body.useFace) {
-        if (!state.profile.face)
-          throw new StudioError(
-            "Añade tu foto de rostro antes de activar la referencia facial.",
-            400,
-          );
-        const face = await imageData(state.profile.face);
-        path = await generate("model-swap", {
-          model_image: modelImage,
-          face_reference: face,
-          face_reference_mode: "match_base",
-          prompt:
-            "The face reference and body photo show the same person. Keep the exact body shape, proportions, pose, age, skin tone and clothing of the body photograph. Use the face reference only to preserve facial likeness. Do not slim or beautify.",
-        });
-        modelImage = await imageData(path);
-      }
-      for (let i = 0; i < products.length; i++) {
-        if (Date.now() > deadline - 45000)
-          throw new StudioError(
-            "Guardamos el avance. Vuelve a pulsar para continuar sin repetir las prendas ya generadas.",
-            409,
-          );
-        path = await generate("tryon-max", {
-          model_image: modelImage,
-          product_image: products[i],
-          seed: body.seed,
-          prompt: `Wear this ${garments[i].name}. Preserve the person's face, identity, body proportions, skin tone and pose. Preserve every other garment and accessory already worn. Do not slim, beautify or change age.`,
-        });
-        if (i < products.length - 1) modelImage = await imageData(path);
-      }
+      path = await generate("tryon-max", {
+        model_image: modelImage,
+        product_image: productImage,
+        seed: body.seed,
+        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. Preserve the exact face, identity, body proportions, skin tone and pose from the person photo. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
+      });
     }
     const { data: signed, error: signError } = await db.storage
       .from("vesti-private")

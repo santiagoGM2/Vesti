@@ -1570,7 +1570,7 @@ export function Vesti() {
                 }
               >
                 <Sparkle />
-                Mejorar foto · 1 crédito
+                Foto de estudio · gratis
               </button>
             )}
           </div>
@@ -1619,8 +1619,7 @@ export function Vesti() {
                   disabled={!!busy}
                   onClick={() => void cleanAll()}
                 >
-                  Crear {drafts.filter((g) => !g.cleaned).length} ·{" "}
-                  {drafts.filter((g) => !g.cleaned).length} créditos
+                  Preparar {drafts.filter((g) => !g.cleaned).length} · gratis
                 </button>
               </section>
             )}
@@ -1681,7 +1680,7 @@ export function Vesti() {
                         onClick={() => void clean(g)}
                       >
                         <Sparkle />
-                        {g.cleaned ? "Mejorada" : "Mejorar · 1 cr."}
+                        {g.cleaned ? "Lista" : "Preparar · gratis"}
                       </button>
                       <button
                         disabled={!!busy || !g.name.trim()}
@@ -1754,25 +1753,16 @@ export function Vesti() {
             <p className="editor-cost">
               {result
                 ? "Esta imagen queda guardada con tu look."
-                : `Hasta ${chosen.length + (useFace ? 4 : 0)} créditos FASHN · 1 por pieza nueva. Los pasos ya creados se reutilizan.`}
+                : "1 crédito FASHN por look completo. Las fotos de estudio se preparan gratis y se reutilizan."}
             </p>
             <p className="editor-cost">
               El probador conserva el rostro de tu foto de cuerpo entero. El
               resultado es una simulación visual.
             </p>
-            <label className="consent face-option">
-              <input
-                type="checkbox"
-                checked={useFace}
-                disabled={!!busy || !profile.face}
-                onChange={(e) => {
-                  setUseFace(e.target.checked);
-                  setResult(null);
-                }}
-              />
-              Usar también mi foto de rostro · hasta 4 créditos extra. La base
-              facial se reutiliza en otros looks.
-            </label>
+            <p className="editor-cost face-note">
+              Tu cuerpo y rostro se conservan en la misma foto base. El resultado
+              siempre se presenta sobre fondo blanco.
+            </p>
             {result && (
               <button
                 className="text-button regenerate"

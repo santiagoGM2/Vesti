@@ -1082,6 +1082,22 @@ img {
   font-weight: 650;
   transition: transform 140ms cubic-bezier(0.23, 1, 0.32, 1);
 }
+
+.delete-garment {
+  width: 100%;
+  min-height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 1px solid oklch(0.82 0.045 24);
+  border-radius: 999px;
+  color: oklch(0.48 0.16 24);
+  background: oklch(0.97 0.018 24);
+  font: inherit;
+  font-weight: 600;
+}
 .draft {
   margin-top: 24px;
 }

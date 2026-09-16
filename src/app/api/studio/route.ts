@@ -206,6 +206,42 @@ export async function POST(request: Request) {
         throw new StudioError("No pudimos recuperar tu imagen.");
       return result.path;
     }
+    if (body.action === "extract") {
+      const names = body.garments.map((g) => `${g.name} (${g.color})`).join(", ");
+      const sheetPath = await generate("edit", {
+        image: await imageData(body.path),
+        prompt: `Extract every visible wardrobe item from this photo and recreate them as separate premium ecommerce flat-lay product photographs on one seamless pure white sheet. Items: ${names}. Show each item exactly once, fully visible, centered in its own generous grid area, with clear white space between items. Remove the person, skin, hands, furniture, room, hangers and shadows. Reconstruct naturally hidden portions, smooth incidental wrinkles, and preserve the exact color, fabric, cut, pattern, seams, hardware and visible branding. Do not invent, duplicate, combine or redesign items.`,
+      });
+      const sheet = await resize(await read(sheetPath), 1600);
+      const claudeKey = process.env.ANTHROPIC_API_KEY;
+      if (!claudeKey)
+        throw new StudioError("Falta configurar ANTHROPIC_API_KEY en Vercel.", 503);
+      const inventory = analysisSchema.parse(await analyzeWithClaude(sheet, claudeKey));
+      const metadata = await sharp(sheet).metadata();
+      const garments = [];
+      for (const [index, garment] of inventory.garments.entries()) {
+        const rect = garment.bounds && cropRectangle(garment.bounds, metadata.width!, metadata.height!);
+        if (!rect) continue;
+        const path = `${user.id}/studio-piece-${cacheKey(user.id, `${sheetPath}:${index}:${JSON.stringify(rect)}`, providerKey)}.png`;
+        const bytes = await sharp(sheet)
+          .extract(rect)
+          .resize({ width: 900, height: 900, fit: "contain", background: "#ffffff" })
+          .flatten({ background: "#ffffff" })
+          .png()
+          .toBuffer();
+        const saved = await db.storage.from("vesti-private").upload(path, bytes, {
+          contentType: "image/png",
+          upsert: true,
+        });
+        if (saved.error) throw new StudioError("No pudimos guardar una prenda extraída.");
+        const signed = await db.storage.from("vesti-private").createSignedUrl(path, 3600);
+        if (signed.error) throw new StudioError("No pudimos abrir una prenda extraída.");
+        garments.push({ ...garment, path, image: signed.data.signedUrl, source: body.path, cleaned: true });
+      }
+      if (!garments.length)
+        throw new StudioError("No pudimos separar las prendas de esta foto. Prueba con mejor luz.");
+      return NextResponse.json({ garments });
+    }
     let path: string;
     if (body.action === "clean") {
       // Studio finish is intentionally local and free. Analysis already stores a
@@ -279,7 +315,7 @@ export async function POST(request: Request) {
         model_image: modelImage,
         product_image: productImage,
         seed: body.seed,
-        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. Preserve the exact face, identity, body proportions, skin tone and pose from the person photo. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
+        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. Preserve the face pixel-faithfully from the person photo, especially eye shape, eye direction, iris color, eyelids, eyebrows, nose, mouth, expression, hairline and facial proportions. Do not retouch, beautify, enlarge eyes, change gaze, change age or change identity. Preserve the exact body proportions, skin tone and pose. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
       });
     }
     const { data: signed, error: signError } = await db.storage

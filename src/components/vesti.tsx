@@ -441,14 +441,21 @@ export function Vesti() {
           if (!response) throw lastError || Error("No se pudo analizar la foto.");
           if (!response.garments.length)
             throw Error("No detectamos prendas visibles. Prueba otra foto con mejor luz.");
-          detectedTotal += response.garments.length;
+          setQueue((q) => q.map((row, n) => n === i ? { ...row, status: "Separando prendas…" } : row));
+          const extracted = await studio({
+            action: "extract",
+            path: source,
+            garments: response.garments,
+          });
+          detectedTotal += extracted.garments.length;
           setDrafts((d) => [
             ...d,
-            ...response.garments.map((g: Garment) => ({
+            ...extracted.garments.map((g: Garment) => ({
               ...g,
               source,
               id: crypto.randomUUID(),
               favorite: false,
+              cleaned: true,
             })),
           ]);
           setQueue((q) =>
@@ -456,7 +463,7 @@ export function Vesti() {
               n === i
                 ? {
                     ...row,
-                    status: `${response.garments.length} piezas detectadas`,
+                    status: `${extracted.garments.length} prendas separadas`,
                   }
                 : row,
             ),
@@ -1590,6 +1597,31 @@ export function Vesti() {
                 Foto de estudio · gratis
               </button>
             )}
+            <button
+              className="delete-garment"
+              disabled={!!busy}
+              onClick={() =>
+                void run("Eliminando prenda…", async () => {
+                  const next = {
+                    ...latest.current,
+                    garments: latest.current.garments.filter(
+                      (g) => g.id !== editingGarment.id,
+                    ),
+                    looks: latest.current.looks.filter(
+                      (look) => !look.ids.includes(editingGarment.id),
+                    ),
+                  };
+                  await persist(next);
+                  setSelected((ids) => ids.filter((id) => id !== editingGarment.id));
+                  setEditingGarment(null);
+                  setSheet(null);
+                  setNotice("Prenda eliminada de tu clóset.");
+                })
+              }
+            >
+              <Trash />
+              Eliminar del clóset
+            </button>
           </div>
         )}
         {sheet === "upload" && (
@@ -1598,8 +1630,8 @@ export function Vesti() {
               <Camera size={30} />
               <strong>Selecciona una o varias fotos</strong>
               <span>
-                Ropa u outfits completos · hasta 10 fotos · desglosamos cada
-                prenda visible
+                Ropa u outfits completos · hasta 10 fotos · una extracción de
+                estudio por foto
               </span>
               <input
                 type="file"
@@ -1613,9 +1645,8 @@ export function Vesti() {
               />
             </label>
             <p className="sheet-note">
-              Primero separamos cada prenda. Después puedes convertir las que
-              quieras en fotos de estudio: fondo blanco, encuadre limpio y
-              arrugas suavizadas, conservando color, corte y detalles.
+              Cada foto usa 1 crédito para reconstruir todas sus prendas sobre
+              fondo blanco. Después cada pieza se guarda y se reutiliza sin coste.
             </p>
             {queue.map((q, i) => (
               <div className="queue-row" key={`${q.name}-${i}`}>

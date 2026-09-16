@@ -31,6 +31,11 @@ export const analysisSchema = z.object({
 export const studioSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("analyze"), path: z.string().max(200) }),
   z.object({
+    action: z.literal("extract"),
+    path: z.string().max(200),
+    garments: z.array(garmentSchema).min(1).max(30),
+  }),
+  z.object({
     action: z.literal("clean"),
     path: z.string().max(200),
     garment: garmentSchema,

@@ -36,14 +36,8 @@ export async function POST(request: Request) {
     } = await db.auth.getUser(authorization.slice(7));
     if (error || !user)
       throw new StudioError("Tu sesión expiró. Vuelve a entrar.", 401);
-    const allowed = (process.env.VESTI_ALLOWED_EMAILS || "")
-      .split(",")
-      .map((s) => s.trim().toLowerCase());
-    if (!user.email || !allowed.includes(user.email.toLowerCase()))
-      throw new StudioError(
-        "Esta cuenta todavía no tiene habilitado el estudio.",
-        403,
-      );
+    // Access is governed by Supabase Auth. Do not maintain a second allowlist:
+    // any user who successfully signs in can use their private wardrobe.
     const raw = await request.text();
     if (raw.length > 16000)
       throw new StudioError("Solicitud demasiado grande.", 413);

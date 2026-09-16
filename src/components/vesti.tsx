@@ -424,7 +424,23 @@ export function Vesti() {
         );
         try {
           const source = await upload(list[i]);
-          const response = await studio({ action: "analyze", path: source });
+          let response: { garments: Garment[] } | null = null;
+          let lastError: unknown;
+          // Provider calls can briefly time out while processing a batch. Retry
+          // once with the same uploaded path; the server cache prevents a
+          // duplicate Claude request when the first call was accepted.
+          for (let attempt = 0; attempt < 2 && !response; attempt++) {
+            try {
+              response = await studio({ action: "analyze", path: source });
+            } catch (error) {
+              lastError = error;
+              if (attempt === 0)
+                await new Promise((resolve) => setTimeout(resolve, 700));
+            }
+          }
+          if (!response) throw lastError || Error("No se pudo analizar la foto.");
+          if (!response.garments.length)
+            throw Error("No detectamos prendas visibles. Prueba otra foto con mejor luz.");
           detectedTotal += response.garments.length;
           setDrafts((d) => [
             ...d,
@@ -447,12 +463,13 @@ export function Vesti() {
           );
         } catch (e) {
           failedTotal += 1;
+          const reason = e instanceof Error ? e.message : "No se pudo analizar";
           setQueue((q) =>
             q.map((row, n) =>
               n === i
                 ? {
                     ...row,
-                    status: "No se completó; selecciona esta foto de nuevo",
+                    status: `No se completó: ${reason}`,
                   }
                 : row,
             ),

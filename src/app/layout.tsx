@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   applicationName: "Vesti",
   appleWebApp: { capable: true, title: "Vesti", statusBarStyle: "default" },
 };
-export const viewport: Viewport = { themeColor: "#123f49" };
+export const viewport: Viewport = { themeColor: "#ffffff" };
 export default function RootLayout({
   children,
 }: {

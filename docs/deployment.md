@@ -48,3 +48,25 @@ La limpieza opcional cuesta 1 crédito según la tarifa fast/1K consultada. No g
 - Repetir una entrada idéntica reutiliza caché por cuenta. Rotar la clave invalida las claves de caché anteriores y puede generar de nuevo; revisar antes de volver a pulsar.
 - Originales en Supabase privado; referencias de generación enviadas directamente al proveedor como base64. El servidor solicita salida base64, sin descargar URLs arbitrarias del resultado.
 - Envíos inciertos quedan bloqueados hasta revisión para evitar doble gasto. FASHN conserva resultados base64 por un tiempo limitado; la recuperación de un checkpoint vencido requiere revisar el estado antes de permitir una nueva generación.
+
+## Estado actual y nuevo recorrido — 16 septiembre 2026
+
+Las variables de Production, Site URL y redirect público ya se configuraron. La consulta a /auth/v1/settings confirma correo activo, registro permitido y Google desactivado.
+
+### Activar Google (pendiente)
+
+1. Crear cliente OAuth de tipo web en Google Auth Platform.
+2. Origen autorizado: https://vesti-five.vercel.app
+3. Redirect autorizado: https://exgypopxzbmvmgkrehpa.supabase.co/auth/v1/callback
+4. Copiar Client ID y Client Secret directamente en Supabase → Authentication → Sign In / Providers → Google; habilitar y guardar. No añadir el secreto al frontend ni al repositorio.
+5. Configurar audiencia de Google y, en modo prueba, autorizar los correos que van a entrar. Comprobar acceso en un navegador privado.
+
+Documentación: https://supabase.com/docs/guides/auth/social-login/auth-google
+
+### Prueba económica actual
+
+Crear cuenta por correo y confirmar → elegir nombre y ropa → subir rostro/cuerpo → autorizar IA. Añadir una foto y revisar cada recorte. Agregar conserva el recorte sin coste FASHN; Mejorar solicita una imagen de estudio por 1 crédito. Desde Clóset o Inicio, componer un look y generar inicialmente una sola prenda. La referencia facial está desactivada por defecto: activarla prepara una base por hasta 4 créditos y luego la reutiliza. No implica entrenamiento biométrico.
+
+Model Swap: https://docs.fashn.ai/api-reference/model-swap. Fast/1K cuesta 1 crédito más 3 por referencia facial. Las tarifas son las consultadas al implementar; comprobar cambios del proveedor si se actualiza el modelo.
+
+El clima solo solicita geolocalización al pulsar Ver clima local, redondea coordenadas a dos decimales y conserva la respuesta una hora en sessionStorage. Open-Meteo gratuito para este uso personal no comercial; revisar licencia y servicio si se comercializa.

@@ -29,3 +29,13 @@
 - Verificación visual a 390×844: navegación inferior, armario de dos columnas. Se corrigieron acceso al perfil móvil y espacio entre palabras al ocultar un salto de línea.
 
 Pendiente: registro/correo con una cuenta real, subida de fotos reales, IA pagada, fidelidad de generación, despliegue público y concurrencia entre dispositivos. Los ensayos visuales usaron la vista previa, no se presentan como pruebas completas de backend/IA.
+
+## Rediseño de septiembre — verificación adicional
+
+- 17 pruebas unitarias de proveedores/caché/modelo/recortes/recomendaciones aprobadas; ninguna ejecuta IA real.
+- Build de Next.js y TypeScript aprobados.
+- Playwright visible en localhost:3000: formulario de correo, nombre Stephany introducido por la prueba, selección femenina, introducción avatar, pantalla de fotos, omitir, saludo, búsqueda de prendas y guardado de combinación. Vista previa en memoria, sin cuenta real ni envíos de correo.
+- Sin desbordamiento horizontal en 320, 390, 768 y 1440 píxeles. Capturas inspeccionadas de inicio, fotos y editor.
+- Supabase: consulta read-only confirma tabla disponible con un documento existente; no se reemplazaron datos del propietario. Auth settings confirma email=true, disable_signup=false, google=false.
+- Pendiente prueba real del propietario: confirmación de correo, acceso Google tras configurarlo, subida/segmentación de una foto real, calidad de limpieza y semejanza del avatar. Model Swap y Try-On Max son integraciones implementadas con contrato oficial, no pruebas visuales pagadas.
+- Flujo autenticado simulado completo aprobado: foto de outfit → dos recortes → editar marca → guardar clóset → seleccionar dos piezas → respuesta de avatar → guardar look. Todas las peticiones externas se interceptaron; no se creó cuenta ni se gastó saldo.

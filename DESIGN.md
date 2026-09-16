@@ -1,39 +1,21 @@
 # Vesti — sistema visual
 
-## Direction
+## Dirección
 
-Aplicación personal de moda con composición limpia, superficies blancas, tinta azul petróleo y aguamarina. El salmón aporta calidez en detalles. El logo original se mantiene intacto; los tamaños derivados se generan una sola vez con Sharp.
+Referencia: las 23 capturas de Alta Daily entregadas el 16 de septiembre de 2026. Mantener la identidad original Vesti. Inicio blanco con logo y nombre, acceso Google/correo, onboarding separado y aplicación centrada en prendas.
 
-## Color
+## Fundamentos
 
-- Ink / primary: #123f49
-- Secondary text: #536c73
-- Paper: #f7faf9
-- Lines: #dce7e7
-- Aqua surface: #d9f4ef
-- Salmon surface: #f8dfd6
-- Hero: fondo petróleo y texto blanco / aguamarina claro.
+- Fondo blanco #ffffff, texto #141414, superficies #f3f3f3, aguamarina en selección y marca.
+- Tipografía del sistema: -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif. Sin fuentes remotas.
+- Títulos grandes con tracking ajustado y palabras en cursiva en onboarding. Lectura sencilla y espacio amplio.
+- Acciones principales negras y redondas. Navegación flotante translúcida de tres secciones: Inicio, Clóset, Perfil, más agregar.
+- Clóset en tres columnas móvil y cuatro escritorio. Inicio en una columna móvil y dos escritorio.
+- Paneles oscuros para importar y componer; perfil y edición de metadatos claros. Dialog nativo con foco y Escape.
+- Feedback inmediato al pulsar. Respeto a movimiento reducido, contraste aumentado y transparencia reducida.
 
-## Typography
+## Funcionalidad y economía
 
-Sans serif del sistema, sin descargas externas. Jerarquía por tamaño y peso: títulos claros, cuerpo de 14–16 px, metadatos de al menos 12 px. Evitar tracking excesivo en textos de lectura.
+La detección ofrece recortes aproximados revisables. Mejorar una foto es una acción pagada explícita. Un collage se crea sin IA; el avatar se genera solo al pulsar su botón con el máximo de créditos visible. Las ilustraciones de la vista previa se identifican como ejemplos.
 
-## Components and layout
-
-Marca reutilizable. Navegación lateral en escritorio e inferior en móvil. Formulario de bienvenida accesible sin atravesar una portada larga. Paneles de prendas con fondos sutiles, acciones de 44 px y una jerarquía principal por pantalla. Radios 12–24 px, sombras solo para separar capas.
-
-## Motion
-
-Transiciones de interacción de 180–220 ms. Respetar prefers-reduced-motion. No añadir librerías de animación ni efectos de movimiento continuo.
-
-## Review
-
-| Antes | Después | Motivo |
-| --- | --- | --- |
-| Marca solo de texto | Logo original y marca reutilizable | Identidad consistente e icono de inicio |
-| Texto gris pequeño | Texto petróleo y metadatos legibles | Lectura y contraste |
-| Portada extensa en móvil | Cabecera breve seguida del registro | Acceso directo a la cuenta |
-| Controles pequeños | Objetivos táctiles de 44 px | Uso con una mano |
-| Solicitud por imagen | Firma de URLs por lote | Menor latencia y tráfico |
-
-Skills consultadas: UI/UX Pro Max, Impeccable (adapt/polish), Taste, Emil design engineering, Playwright y Superpowers (verificación). Las recomendaciones automáticas de landing, rosa y tipografía manuscrita se descartan porque contradicen el producto y los colores pedidos.
+Guías aplicadas en este rediseño: Apple Design, React Best Practices y Playwright. Las capturas son referencias de composición; no se incorporan fotos ni logos de Alta al producto.

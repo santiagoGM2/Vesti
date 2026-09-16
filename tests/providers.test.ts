@@ -9,7 +9,7 @@ test('Claude uses compact Haiku vision requests and validates categories',async(
  let body:Record<string,unknown>={};
  const transport:typeof fetch=async(_url,init)=>{body=JSON.parse(init!.body as string);return Response.json({stop_reason:'end_turn',content:[{type:'text',text:'{"garments":[{"name":"Camisa","category":"Tops","color":"Azul"}]}'}],usage:{input_tokens:100,output_tokens:50}});};
  const output=await analyzeWithClaude(Buffer.from('test'),'fake-test-key',transport);
- assert.equal(body.model,'claude-haiku-4-5-20251001');assert.equal(body.max_tokens,1800);assert.equal(output.garments[0].category,'Tops');
+ assert.equal(body.model,'claude-haiku-4-5-20251001');assert.equal(body.max_tokens,4500);assert.equal(output.garments[0].category,'Tops');
 });
 test('paid submissions always request a single fast 1K image with no network retries',async()=>{
  let calls=0;

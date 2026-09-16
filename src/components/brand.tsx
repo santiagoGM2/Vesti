@@ -1,10 +1,10 @@
 import Image from "next/image";
 
-export function Brand() {
+export function Brand({ large = false }: { large?: boolean }) {
   return (
-    <span className="brand-lockup">
-      <Image src="/brand/logo.webp" alt="" width={56} height={56} priority />
-      <span>vesti<span className="brand-dot">.</span></span>
+    <span className={`logo ${large ? 'logo-large' : ''}`}>
+      <Image src="/brand/logo.webp" alt="" width={large ? 140 : 42} height={large ? 140 : 42} priority />
+      <span>Vesti</span>
     </span>
   );
 }

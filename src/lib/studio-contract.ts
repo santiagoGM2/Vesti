@@ -8,11 +8,25 @@ export const garmentSchema = z.object({
     "Abrigos",
     "Zapatos",
     "Accesorios",
+    "Bolsos",
+    "Joyería",
+    "Otras prendas",
   ]),
   color: z.string().max(50),
+  brand: z.string().max(80).optional(),
+  warmth: z.number().int().min(0).max(3).optional(),
+  formality: z.number().int().min(0).max(3).optional(),
+  bounds: z
+    .tuple([
+      z.number().min(0).max(1),
+      z.number().min(0).max(1),
+      z.number().min(0).max(1),
+      z.number().min(0).max(1),
+    ])
+    .optional(),
 });
 export const analysisSchema = z.object({
-  garments: z.array(garmentSchema).max(12),
+  garments: z.array(garmentSchema).max(30),
 });
 export const studioSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("analyze"), path: z.string().max(200) }),
@@ -23,6 +37,8 @@ export const studioSchema = z.discriminatedUnion("action", [
   }),
   z.object({
     action: z.literal("tryon"),
+    useFace: z.boolean().default(false),
+    seed: z.number().int().min(0).max(4294967295).default(42),
     ids: z
       .array(z.string().max(100))
       .min(1)

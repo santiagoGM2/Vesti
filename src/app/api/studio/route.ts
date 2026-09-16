@@ -14,6 +14,7 @@ import {
   submitFashn,
 } from "@/lib/studio-providers";
 import { cacheKey, requestCache } from "@/lib/studio-cache";
+import { cropRectangle } from "@/lib/crop";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
@@ -111,17 +112,55 @@ export async function POST(request: Request) {
       const image = await resize(await read(body.path), 1024);
       const hash = cacheKey(
         user.id,
-        VISION_MODEL + image.toString("base64"),
+        VISION_MODEL + "inventory-v2" + image.toString("base64"),
         providerKey,
       );
       const result = await cached(hash, async () => {
         await reserve();
         return analyzeWithClaude(image, providerKey);
       });
-      return NextResponse.json(analysisSchema.parse(result));
+      const inventory = analysisSchema.parse(result);
+      const metadata = await sharp(image).metadata();
+      const garments = [];
+      for (const garment of inventory.garments) {
+        const rect =
+          garment.bounds &&
+          cropRectangle(garment.bounds, metadata.width!, metadata.height!);
+        let path = body.path;
+        if (rect) {
+          path = `${user.id}/crop-${cacheKey(user.id, hash + JSON.stringify(rect), providerKey)}.jpeg`;
+          const bytes = await sharp(image)
+            .extract(rect)
+            .jpeg({ quality: 90 })
+            .toBuffer();
+          const saved = await db.storage
+            .from("vesti-private")
+            .upload(path, bytes, { contentType: "image/jpeg" });
+          if (saved.error) {
+            const existing = await db.storage
+              .from("vesti-private")
+              .download(path);
+            if (existing.error)
+              throw new StudioError(
+                "No pudimos guardar los recortes. Reintenta para recuperar el análisis.",
+              );
+          }
+        }
+        const signed = await db.storage
+          .from("vesti-private")
+          .createSignedUrl(path, 3600);
+        if (signed.error) throw new StudioError("No pudimos abrir el recorte.");
+        garments.push({
+          ...garment,
+          path,
+          image: signed.data.signedUrl,
+          source: body.path,
+        });
+      }
+      return NextResponse.json({ garments });
     }
     async function generate(
-      model: "edit" | "tryon-max",
+      model: "edit" | "tryon-max" | "model-swap",
       inputs: Record<string, unknown>,
     ) {
       const hash = cacheKey(
@@ -212,6 +251,22 @@ export async function POST(request: Request) {
       );
       let modelImage = await imageData(state.profile.body);
       path = state.profile.body;
+      if (body.useFace) {
+        if (!state.profile.face)
+          throw new StudioError(
+            "Añade tu foto de rostro antes de activar la referencia facial.",
+            400,
+          );
+        const face = await imageData(state.profile.face);
+        path = await generate("model-swap", {
+          model_image: modelImage,
+          face_reference: face,
+          face_reference_mode: "match_base",
+          prompt:
+            "The face reference and body photo show the same person. Keep the exact body shape, proportions, pose, age, skin tone and clothing of the body photograph. Use the face reference only to preserve facial likeness. Do not slim or beautify.",
+        });
+        modelImage = await imageData(path);
+      }
       for (let i = 0; i < products.length; i++) {
         if (Date.now() > deadline - 45000)
           throw new StudioError(
@@ -221,6 +276,7 @@ export async function POST(request: Request) {
         path = await generate("tryon-max", {
           model_image: modelImage,
           product_image: products[i],
+          seed: body.seed,
           prompt: `Wear this ${garments[i].name}. Preserve the person's face, identity, body proportions, skin tone and pose. Preserve every other garment and accessory already worn. Do not slim, beautify or change age.`,
         });
         if (i < products.length - 1) modelImage = await imageData(path);

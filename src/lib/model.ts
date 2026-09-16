@@ -6,6 +6,9 @@ export const categories = [
   "Abrigos",
   "Zapatos",
   "Accesorios",
+  "Bolsos",
+  "Joyería",
+  "Otras prendas",
 ] as const;
 export type Category = (typeof categories)[number];
 export type Garment = {
@@ -17,6 +20,11 @@ export type Garment = {
   path?: string;
   favorite: boolean;
   kind?: string;
+  brand?: string;
+  warmth?: number;
+  formality?: number;
+  source?: string;
+  cleaned?: boolean;
 };
 export type Look = {
   id: string;
@@ -32,6 +40,10 @@ export type Profile = {
   face?: string;
   body?: string;
   consent: boolean;
+  preferences?: string[];
+  onboarded?: boolean;
+  faceImage?: string;
+  bodyImage?: string;
 };
 export type Wardrobe = { profile: Profile; garments: Garment[]; looks: Look[] };
 export const initial: Wardrobe = {

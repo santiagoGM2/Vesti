@@ -17,15 +17,26 @@ export async function loadWardrobe(): Promise<Wardrobe> {
   if (error) throw error;
   const state: Wardrobe = data?.data || structuredClone(initial);
   const items = [...state.garments, ...state.looks];
-  const paths = [...new Set(items.flatMap((item) => item.path ? [item.path] : []))];
+  const paths = [
+    ...new Set([
+      ...items.flatMap((item) => (item.path ? [item.path] : [])),
+      ...[state.profile.face, state.profile.body].filter(
+        (p): p is string => !!p,
+      ),
+    ]),
+  ];
   if (paths.length) {
     const { data, error } = await supabase.storage
       .from("vesti-private")
       .createSignedUrls(paths, 3600);
     if (error) throw error;
     if (data.some((entry) => entry.error))
-      throw Error("No pudimos abrir algunas fotos de tu armario. Intenta cargarlo de nuevo.");
+      throw Error(
+        "No pudimos abrir algunas fotos de tu armario. Intenta cargarlo de nuevo.",
+      );
     const urls = new Map(data.map((entry) => [entry.path, entry.signedUrl]));
+    state.profile.faceImage = urls.get(state.profile.face || "") ?? undefined;
+    state.profile.bodyImage = urls.get(state.profile.body || "") ?? undefined;
     for (const item of items) {
       if (item.path) item.image = urls.get(item.path) ?? undefined;
     }
@@ -43,6 +54,7 @@ export async function saveWardrobe(state: Wardrobe) {
   if (!user) throw Error("Inicia sesión para guardar tu armario.");
   const data = {
     ...state,
+    profile: { ...state.profile, faceImage: undefined, bodyImage: undefined },
     garments: state.garments.map((g) => ({
       ...g,
       image: g.path ? undefined : g.image,
@@ -71,8 +83,13 @@ export async function upload(file: File) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw Error("Inicia sesión para subir fotos.");
-  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
-  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    await file.arrayBuffer(),
+  );
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
   const path = `${user.id}/upload-${hash}.${file.type.split("/")[1]}`;
   const { error } = await supabase.storage
     .from("vesti-private")
@@ -80,7 +97,9 @@ export async function upload(file: File) {
   if (error) {
     // Repeated photographs share one private object. Only accept a duplicate
     // when the authenticated owner can actually read the existing object.
-    const existing = await supabase.storage.from("vesti-private").download(path);
+    const existing = await supabase.storage
+      .from("vesti-private")
+      .download(path);
     if (existing.error) throw error;
   }
   return path;

@@ -39,3 +39,11 @@ Pendiente: registro/correo con una cuenta real, subida de fotos reales, IA pagad
 - Supabase: consulta read-only confirma tabla disponible con un documento existente; no se reemplazaron datos del propietario. Auth settings confirma email=true, disable_signup=false, google=false.
 - Pendiente prueba real del propietario: confirmación de correo, acceso Google tras configurarlo, subida/segmentación de una foto real, calidad de limpieza y semejanza del avatar. Model Swap y Try-On Max son integraciones implementadas con contrato oficial, no pruebas visuales pagadas.
 - Flujo autenticado simulado completo aprobado: foto de outfit → dos recortes → editar marca → guardar clóset → seleccionar dos piezas → respuesta de avatar → guardar look. Todas las peticiones externas se interceptaron; no se creó cuenta ni se gastó saldo.
+
+### Cierre de configuración Google
+
+- Producción publicada en https://vesti-five.vercel.app/ con el rediseño del commit 814883d.
+- Google OAuth conectado a Supabase: configuración pública verificada con `google=true`, `email=true` y `disable_signup=false`, sustituyendo el estado anterior indicado arriba.
+- Cuenta del propietario añadida a usuarios de prueba de Google. Se conservan las protecciones de nonce y correo obligatorio.
+- Botón público «Continuar con Google» verificado hasta la pantalla oficial de Google, con el cliente web y callback de Supabase correctos.
+- Pendiente intervención del propietario: completar su sesión de Google y probar fotos reales. No se ha verificado todavía la fidelidad visual del avatar con IA pagada ni se ha consumido saldo en estas comprobaciones.

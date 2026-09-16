@@ -51,9 +51,13 @@ La limpieza opcional cuesta 1 crédito según la tarifa fast/1K consultada. No g
 
 ## Estado actual y nuevo recorrido — 16 septiembre 2026
 
-Las variables de Production, Site URL y redirect público ya se configuraron. La consulta a /auth/v1/settings confirma correo activo, registro permitido y Google desactivado.
+Las variables de Production, Site URL y redirect público ya se configuraron. La consulta a /auth/v1/settings confirma correo y Google activos y registro permitido.
 
-### Activar Google (pendiente)
+### Google configurado
+
+Cliente web `Vesti Web` creado en el proyecto Google Cloud `automatic-vent-508819-c6`. Credenciales guardadas directamente en Supabase, sin incluir el secreto en archivos ni en el repositorio. Se mantienen las comprobaciones de nonce y el requisito de correo. Audiencia externa en modo prueba, con el correo del propietario autorizado. Antes de entregar el regalo, añadir el correo de Stephany a los usuarios de prueba de Google y a `VESTI_ALLOWED_EMAILS` en Vercel.
+
+El botón público se verificó hasta la pantalla oficial de inicio de sesión de Google. El propietario debe completar el acceso con su cuenta para comprobar el retorno y la sesión persistente. Referencia de configuración:
 
 1. Crear cliente OAuth de tipo web en Google Auth Platform.
 2. Origen autorizado: https://vesti-five.vercel.app

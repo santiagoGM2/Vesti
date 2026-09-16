@@ -686,7 +686,15 @@ export function Vesti() {
                 onClick={() => void google()}
                 disabled={!!busy}
               >
-                <span className="google-g">G</span>Continuar con Google
+                <Image
+                  src="/google-g.png"
+                  alt=""
+                  width={22}
+                  height={22}
+                  className="google-g"
+                  priority
+                />
+                Continuar con Google
               </button>
               <button
                 className="secondary wide"

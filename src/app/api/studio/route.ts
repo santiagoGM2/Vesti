@@ -216,7 +216,7 @@ export async function POST(request: Request) {
     if (body.action === "clean")
       path = await generate("edit", {
         image: await imageData(body.path),
-        prompt: `Extract ONLY the ${body.garment.name} (${body.garment.category}, ${body.garment.color}) as a studio product photo on warm white. Remove the person and background. Smooth incidental wrinkles. Preserve exact cut, color, texture, patterns and branding. Never invent hidden details or redesign the garment.`,
+        prompt: `Create a premium ecommerce product photograph of ONLY the ${body.garment.name} (${body.garment.category}, ${body.garment.color}). Extract it completely from the person and original scene. Present the full garment centered, straight and naturally shaped on a seamless neutral white background, with soft even studio light and no cast shadow. Smooth incidental wrinkles and visual creases while preserving the exact cut, proportions, color, fabric texture, seams, patterns, hardware and visible branding. Remove hands, body parts, hangers, furniture and every background object. Do not redesign the garment, add details, alter logos or invent hidden construction.`,
       });
     else {
       const state = record.data;

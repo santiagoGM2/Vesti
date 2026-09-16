@@ -23,6 +23,7 @@ import {
   Envelope,
   ArrowClockwise,
   Trash,
+  CheckCircle,
 } from "@phosphor-icons/react";
 import { GarmentArt } from "./garment-art";
 import { Brand as Logo } from "./brand";
@@ -90,6 +91,10 @@ export function Vesti() {
     temperature: number;
     description: string;
   } | null>(null);
+  const [photoState, setPhotoState] = useState<
+    Record<"face" | "body", "idle" | "checking" | "ready" | "error">
+  >({ face: "idle", body: "idle" });
+  const [faceFocus, setFaceFocus] = useState("50% 32%");
   const dialog = useRef<HTMLDialogElement>(null),
     mutex = useRef(false),
     latest = useRef(wardrobe);
@@ -260,21 +265,75 @@ export function Vesti() {
   }
   async function photo(file: File | undefined, kind: "face" | "body") {
     if (!file) return;
-    await run("Guardando tu foto…", async () => {
-      if (demo)
-        throw Error(
-          "Las fotos personales se guardan al crear una cuenta. Puedes omitir este paso en la vista previa.",
-        );
-      const path = await upload(file);
-      const signed = await supabase!.storage
-        .from("vesti-private")
-        .createSignedUrl(path, 3600);
-      if (signed.error) throw signed.error;
-      await updateProfile({
-        [kind]: path,
-        [`${kind}Image`]: signed.data.signedUrl,
-      });
-    });
+    setPhotoState((current) => ({ ...current, [kind]: "checking" }));
+    await run(
+      kind === "face" ? "Comprobando tu rostro…" : "Comprobando tu foto…",
+      async () => {
+        try {
+          if (demo)
+            throw Error(
+              "Las fotos personales se guardan al crear una cuenta. Puedes omitir este paso en la vista previa.",
+            );
+          if (file.size > 8 * 1024 * 1024)
+            throw Error("La foto debe pesar menos de 8 MB.");
+
+          const bitmap = await createImageBitmap(file);
+          if (bitmap.width < 320 || bitmap.height < 320) {
+            bitmap.close();
+            throw Error("Elige una foto más nítida, de al menos 320 × 320 px.");
+          }
+
+          if (kind === "face" && "FaceDetector" in window) {
+            const FaceDetectorApi = (
+              window as typeof window & {
+                FaceDetector: new (options?: {
+                  fastMode?: boolean;
+                  maxDetectedFaces?: number;
+                }) => {
+                  detect: (image: ImageBitmap) => Promise<
+                    { boundingBox: DOMRectReadOnly }[]
+                  >;
+                };
+              }
+            ).FaceDetector;
+            const faces = await new FaceDetectorApi({
+              fastMode: true,
+              maxDetectedFaces: 1,
+            }).detect(bitmap);
+            if (!faces.length) {
+              bitmap.close();
+              throw Error(
+                "No encontramos un rostro claro. Prueba con una foto frontal y bien iluminada.",
+              );
+            }
+            const box = faces[0].boundingBox;
+            setFaceFocus(
+              `${((box.x + box.width / 2) / bitmap.width) * 100}% ${((box.y + box.height / 2) / bitmap.height) * 100}%`,
+            );
+          }
+          bitmap.close();
+
+          const path = await upload(file);
+          const signed = await supabase!.storage
+            .from("vesti-private")
+            .createSignedUrl(path, 3600);
+          if (signed.error) throw signed.error;
+          await updateProfile({
+            [kind]: path,
+            [`${kind}Image`]: signed.data.signedUrl,
+          });
+          setPhotoState((current) => ({ ...current, [kind]: "ready" }));
+          setNotice(
+            kind === "face"
+              ? "Rostro recibido y encuadrado."
+              : "Foto de cuerpo completo recibida.",
+          );
+        } catch (cause) {
+          setPhotoState((current) => ({ ...current, [kind]: "error" }));
+          throw cause;
+        }
+      },
+    );
   }
   async function locate() {
     await run("Consultando el clima…", async () => {
@@ -343,6 +402,7 @@ export function Vesti() {
   async function processPhotos(files: FileList | null) {
     if (!files) return;
     const list = Array.from(files);
+    if (!list.length) return;
     if (list.length > 10) {
       setError("Añade hasta 10 fotos por lote.");
       return;
@@ -354,6 +414,8 @@ export function Vesti() {
           "Autoriza el análisis de imágenes en tu perfil antes de subir prendas.",
         );
       setQueue(list.map((f) => ({ name: f.name, status: "Esperando" })));
+      let detectedTotal = 0;
+      let failedTotal = 0;
       for (let i = 0; i < list.length; i++) {
         setQueue((q) =>
           q.map((row, n) =>
@@ -363,6 +425,7 @@ export function Vesti() {
         try {
           const source = await upload(list[i]);
           const response = await studio({ action: "analyze", path: source });
+          detectedTotal += response.garments.length;
           setDrafts((d) => [
             ...d,
             ...response.garments.map((g: Garment) => ({
@@ -383,6 +446,7 @@ export function Vesti() {
             ),
           );
         } catch (e) {
+          failedTotal += 1;
           setQueue((q) =>
             q.map((row, n) =>
               n === i
@@ -393,11 +457,12 @@ export function Vesti() {
                 : row,
             ),
           );
-          throw e;
         }
       }
       setNotice(
-        "Revisa los recortes, nombres y categorías antes de guardarlos.",
+        failedTotal
+          ? `${detectedTotal} prendas listas. ${failedTotal} ${failedTotal === 1 ? "foto necesita" : "fotos necesitan"} otro intento.`
+          : `${detectedTotal} prendas detectadas. Revisa sus datos antes de guardarlas.`,
       );
     });
   }
@@ -428,6 +493,44 @@ export function Vesti() {
         garment: g,
       });
       draftChange(g.id, { ...response, cleaned: true });
+      setNotice(`${g.name} ya tiene acabado de estudio.`);
+    });
+  }
+  async function cleanAll() {
+    const pending = drafts.filter((g) => !g.cleaned);
+    if (!pending.length) return;
+    await run(`Creando ${pending.length} fotos de estudio…`, async () => {
+      let completed = 0;
+      let failed = 0;
+      for (const garment of pending) {
+        setBusy(`Embelleciendo ${completed + failed + 1} de ${pending.length}…`);
+        try {
+          const response = await studio({
+            action: "clean",
+            path: garment.path || garment.source,
+            garment,
+          });
+          setDrafts((rows) =>
+            rows.map((row) =>
+              row.id === garment.id
+                ? { ...row, ...response, cleaned: true }
+                : row,
+            ),
+          );
+          completed += 1;
+        } catch {
+          failed += 1;
+        }
+      }
+      if (!completed)
+        throw Error(
+          "No pudimos crear las fotos de estudio. Tu saldo no se volverá a usar al recuperar solicitudes pendientes.",
+        );
+      setNotice(
+        failed
+          ? `${completed} fotos de estudio listas; ${failed} necesitan otro intento.`
+          : `${completed} fotos de estudio listas para guardar.`,
+      );
     });
   }
   async function generate() {
@@ -491,13 +594,18 @@ export function Vesti() {
   const photoFields = (
     <>
       <div className="photo-grid">
-        {(["face", "body"] as const).map((kind) => (
-          <label className="photo-field" key={kind}>
+        {(["face", "body"] as const).map((kind) => {
+          const image = profile[kind === "face" ? "faceImage" : "bodyImage"];
+          const stored = profile[kind];
+          const state = photoState[kind];
+          const complete = state === "ready" || (!!stored && state === "idle");
+          return (
+          <label className={`photo-field ${complete ? "is-ready" : ""}`} key={kind}>
             <span>{kind === "face" ? "ROSTRO" : "CUERPO"}</span>
-            <div>
-              {profile[kind === "face" ? "faceImage" : "bodyImage"] ? (
+            <div className={kind === "face" ? "face-frame" : "body-frame"}>
+              {image ? (
                 <Image
-                  src={profile[kind === "face" ? "faceImage" : "bodyImage"]!}
+                  src={image}
                   alt={
                     kind === "face"
                       ? "Tu foto de rostro"
@@ -506,26 +614,46 @@ export function Vesti() {
                   fill
                   unoptimized
                   sizes="240px"
+                  style={kind === "face" ? { objectPosition: faceFocus } : undefined}
                 />
               ) : (
-                <>
-                  <Plus size={32} />
-                  <small>
-                    {kind === "face"
-                      ? "Añadir foto de rostro"
-                      : "Añadir foto de cuerpo entero"}
+                <div className="photo-empty">
+                  {state === "checking" ? <span className="spinner dark" /> : <Plus size={30} />}
+                  <strong>{kind === "face" ? "Rostro" : "Cuerpo"}</strong>
+                  <small aria-live="polite">
+                    {state === "checking"
+                      ? "Comprobando…"
+                      : state === "error"
+                        ? "Toca para intentarlo otra vez"
+                        : kind === "face"
+                          ? "Foto frontal"
+                          : "De cabeza a pies"}
                   </small>
-                </>
+                </div>
+              )}
+              {image && (
+                <span className="photo-confirmation" role="status">
+                  <CheckCircle weight="fill" />
+                  {kind === "face" ? "Rostro listo" : "Cuerpo listo"}
+                </span>
+              )}
+              {image && (
+                <small className="photo-change">
+                    {kind === "face"
+                      ? "Cambiar rostro"
+                      : "Cambiar foto"}
+                </small>
               )}
               <input
                 type="file"
                 accept="image/jpeg,image/png,image/webp"
                 disabled={!!busy}
                 onChange={(e) => void photo(e.target.files?.[0], kind)}
+                aria-label={kind === "face" ? "Elegir foto de rostro" : "Elegir foto de cuerpo entero"}
               />
             </div>
           </label>
-        ))}
+        )})}
       </div>
       <p className="photo-hint">
         Rostro completo, de frente y con buena luz. Para el cuerpo, incluye la
@@ -1051,6 +1179,12 @@ export function Vesti() {
                         onClick={() => edit([g.id], g.name)}
                       >
                         <GarmentArt garment={g} />
+                        {g.cleaned && (
+                          <span className="studio-mark">
+                            <Sparkle weight="fill" />
+                            Estudio
+                          </span>
+                        )}
                       </button>
                       <div className="garment-caption">
                         <h3>{g.name}</h3>
@@ -1437,8 +1571,11 @@ export function Vesti() {
           <div className="sheet-body">
             <label className="upload-zone">
               <Camera size={30} />
-              <strong>Añade fotos de ropa o de tus outfits</strong>
-              <span>Hasta 10 fotos · JPG, PNG o WebP · 8 MB por foto</span>
+              <strong>Selecciona una o varias fotos</strong>
+              <span>
+                Ropa u outfits completos · hasta 10 fotos · desglosamos cada
+                prenda visible
+              </span>
               <input
                 type="file"
                 multiple
@@ -1451,8 +1588,9 @@ export function Vesti() {
               />
             </label>
             <p className="sheet-note">
-              Detectamos y recortamos cada pieza. La mejora de estudio es
-              opcional y usa 1 crédito FASHN por imagen nueva.
+              Primero separamos cada prenda. Después puedes convertir las que
+              quieras en fotos de estudio: fondo blanco, encuadre limpio y
+              arrugas suavizadas, conservando color, corte y detalles.
             </p>
             {queue.map((q, i) => (
               <div className="queue-row" key={`${q.name}-${i}`}>
@@ -1460,6 +1598,24 @@ export function Vesti() {
                 <small>{q.status}</small>
               </div>
             ))}
+            {!!drafts.filter((g) => !g.cleaned).length && (
+              <section className="studio-batch" aria-label="Acabado de estudio">
+                <div>
+                  <Sparkle weight="fill" />
+                  <span>
+                    <strong>Embellecer todas</strong>
+                    Fondo blanco y acabado de catálogo
+                  </span>
+                </div>
+                <button
+                  disabled={!!busy}
+                  onClick={() => void cleanAll()}
+                >
+                  Crear {drafts.filter((g) => !g.cleaned).length} ·{" "}
+                  {drafts.filter((g) => !g.cleaned).length} créditos
+                </button>
+              </section>
+            )}
             {drafts.map((g) => (
               <article className="draft" key={g.id}>
                 <div className="draft-title">

@@ -9,7 +9,7 @@ export function GarmentArt({ garment }: { garment: Garment }) {
         fill
         unoptimized
         sizes="(max-width: 700px) 45vw, 260px"
-        className="object-contain p-4"
+        className="garment-art garment-photo"
       />
     );
   const type =

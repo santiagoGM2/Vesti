@@ -16,14 +16,20 @@ export async function loadWardrobe(): Promise<Wardrobe> {
     .maybeSingle();
   if (error) throw error;
   const state: Wardrobe = data?.data || structuredClone(initial);
-  for (const item of [...state.garments, ...state.looks])
-    if (item.path) {
-      const { data, error } = await supabase.storage
-        .from("vesti-private")
-        .createSignedUrl(item.path, 3600);
-      if (error) throw error;
-      item.image = data.signedUrl;
+  const items = [...state.garments, ...state.looks];
+  const paths = [...new Set(items.flatMap((item) => item.path ? [item.path] : []))];
+  if (paths.length) {
+    const { data, error } = await supabase.storage
+      .from("vesti-private")
+      .createSignedUrls(paths, 3600);
+    if (error) throw error;
+    if (data.some((entry) => entry.error))
+      throw Error("No pudimos abrir algunas fotos de tu armario. Intenta cargarlo de nuevo.");
+    const urls = new Map(data.map((entry) => [entry.path, entry.signedUrl]));
+    for (const item of items) {
+      if (item.path) item.image = urls.get(item.path) ?? undefined;
     }
+  }
   return state;
 }
 export async function saveWardrobe(state: Wardrobe) {
@@ -65,11 +71,18 @@ export async function upload(file: File) {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw Error("Inicia sesión para subir fotos.");
-  const path = `${user.id}/${crypto.randomUUID()}.${file.type.split("/")[1]}`;
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+  const hash = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const path = `${user.id}/upload-${hash}.${file.type.split("/")[1]}`;
   const { error } = await supabase.storage
     .from("vesti-private")
     .upload(path, file);
-  if (error) throw error;
+  if (error) {
+    // Repeated photographs share one private object. Only accept a duplicate
+    // when the authenticated owner can actually read the existing object.
+    const existing = await supabase.storage.from("vesti-private").download(path);
+    if (existing.error) throw error;
+  }
   return path;
 }
 export async function studio(payload: Record<string, unknown>) {

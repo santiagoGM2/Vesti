@@ -21,6 +21,7 @@ import {
   UploadSimple,
 } from "@phosphor-icons/react";
 import { GarmentArt } from "./garment-art";
+import { Brand } from "./brand";
 import {
   categories,
   examples,
@@ -233,6 +234,30 @@ export function Vesti() {
       );
     });
   }
+  async function keepOriginal(g: Garment & { source: string }) {
+    await run("Guardando tu foto original…", async () => {
+      if (!supabase || isDemo)
+        throw Error("Crea tu cuenta para guardar fotos.");
+      const { data, error } = await supabase.storage
+        .from("vesti-private")
+        .createSignedUrl(g.source, 3600);
+      if (error) throw error;
+      const garment: Garment = {
+        id: g.id,
+        name: g.name,
+        category: g.category,
+        color: g.color,
+        favorite: false,
+        path: g.source,
+        image: data.signedUrl,
+      };
+      await persist({ ...state, garments: [garment, ...items] });
+      setDetected((prev) => prev.filter((x) => x.id !== g.id));
+      setNotice(
+        "Prenda guardada con la foto original, sin gastar créditos de FASHN.",
+      );
+    });
+  }
   async function keep(g: Garment & { source: string }) {
     await run("Preparando tu prenda…", async () => {
       const output = await studio({
@@ -257,7 +282,7 @@ export function Vesti() {
     return (
       <main className="loading">
         <span className="wordmark">
-          vesti<span>•</span>
+          <Brand />
         </span>
         <div className="skeleton" />
         <p>Preparando un espacio para ti…</p>
@@ -268,12 +293,12 @@ export function Vesti() {
       <main className="welcome">
         <section className="welcome-story">
           <a className="wordmark" href="/">
-            vesti<span>•</span>
+            <Brand />
           </a>
           <div>
             <span className="eyebrow">UN PEQUEÑO UNIVERSO, MUY TUYO</span>
             <h1>
-              Tu estilo.
+              Tu estilo.{" "}
               <br />
               Tus posibilidades.
               <br />
@@ -381,7 +406,7 @@ export function Vesti() {
     <div className="app-shell">
       <aside className="sidebar">
         <button className="wordmark" onClick={() => setTab("Hoy")}>
-          vesti<span>•</span>
+          <Brand />
         </button>
         <span className="sidebar-caption">TU UNIVERSO DE ESTILO</span>
         <nav aria-label="Navegación principal">
@@ -425,7 +450,7 @@ export function Vesti() {
       </aside>
       <div className="main-shell">
         <header className="topbar">
-          <span>Tu armario, nuevas posibilidades.</span>
+          <a className="topbar-brand" href="/" aria-label="Vesti, inicio"><Brand /></a>
           <div>
             {isDemo && <span className="demo-label">VISTA PREVIA</span>}
             <button
@@ -461,7 +486,7 @@ export function Vesti() {
                   <span className="eyebrow">UN NUEVO DÍA PARA SER TÚ</span>
                   <h1>
                     Hola, {state.profile.name}
-                    <span className="hello-star">✳</span>
+                    <Sparkle className="hello-star" size={28} aria-hidden="true" />
                   </h1>
                   <p>Tu próximo look favorito ya está en tu armario.</p>
                 </div>
@@ -475,13 +500,8 @@ export function Vesti() {
                     <Sparkle size={14} /> UN POCO DE INSPIRACIÓN
                   </span>
                   <h2>
-                    Eso que tienes.
-                    <br />
-                    <span>
-                      Como nunca{" "}
-                      <br />
-                      lo habías visto.
-                    </span>
+                    Tu armario.<br />
+                    <span>Otra forma<br />de mirarlo.</span>
                   </h2>
                   <p>
                     Nuevas combinaciones, la misma tú.
@@ -512,7 +532,7 @@ export function Vesti() {
                       </div>
                     ))}
                   <span className="collage-label">
-                    THE EVERYDAY EDIT <span>01 / VESTI</span>
+                    TU SELECCIÓN DEL DÍA <span>VESTI</span>
                   </span>
                   <span className="floating-note">
                     muy tú <Heart size={15} />
@@ -773,6 +793,7 @@ export function Vesti() {
                         key={g.id}
                         aria-label={`Seleccionar ${g.name}`}
                         aria-pressed={selection.includes(g.id)}
+                        disabled={!!busy}
                         onClick={() => {
                           setSelection(
                             selection.includes(g.id)
@@ -789,7 +810,7 @@ export function Vesti() {
                   </div>
                   <button
                     className="primary wide"
-                    disabled={!!busy || !chosen.length}
+                    disabled={!!busy || !chosen.length || !!result}
                     onClick={() =>
                       void run("Creando tu visualización…", async () => {
                         if (isDemo)
@@ -802,11 +823,20 @@ export function Vesti() {
                       })
                     }
                   >
-                    <Sparkle /> Ver cómo me queda
+                    <Sparkle />{" "}
+                    {result
+                      ? "Visualización lista"
+                      : `Ver cómo me queda · hasta ${chosen.length} ${chosen.length === 1 ? "crédito" : "créditos"}`}
                   </button>
                   <p className="helper">
                     Una aproximación visual, no una garantía de talla o ajuste.
                     Tus fotos se configuran en Tu perfil.
+                  </p>
+                  <p className="helper">
+                    Modo ahorro: 1K, una imagen por prenda. FASHN coloca las
+                    prendas una a una; repetir esta misma combinación reutiliza
+                    el resultado. Empieza con una sola prenda para evaluar la
+                    calidad.
                   </p>
                   <label>
                     Nombre del look
@@ -999,13 +1029,20 @@ export function Vesti() {
                       ))}
                     </select>
                   </label>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <button
                       className="primary"
                       disabled={!!busy}
                       onClick={() => void keep(g)}
                     >
-                      Limpiar y guardar
+                      Limpiar · 1 crédito
+                    </button>
+                    <button
+                      className="outline"
+                      disabled={!!busy}
+                      onClick={() => void keepOriginal(g)}
+                    >
+                      Guardar original · gratis
                     </button>
                     <button
                       className="outline"
@@ -1115,8 +1152,9 @@ export function Vesti() {
                 ))}
               </div>
               <p className="helper">
-                Las fotos son referencias visuales del probador. No se usan para
-                identificarte mediante reconocimiento facial.
+                El probador usa tu foto de cuerpo completo: tu rostro debe verse
+                claramente en ella. La foto de rostro se guarda como referencia,
+                pero este modo de FASHN no la procesa por separado.
               </p>
               <button
                 className="primary wide"
@@ -1134,6 +1172,12 @@ export function Vesti() {
               >
                 Guardar mi perfil <Check />
               </button>
+              <details className="install-help">
+                <summary>Llevar Vesti a mi pantalla de inicio</summary>
+                <p><strong>iPhone:</strong> abre Vesti en Safari, pulsa Compartir y elige «Añadir a pantalla de inicio».</p>
+                <p><strong>Android:</strong> abre el menú de Chrome y elige «Añadir a pantalla de inicio» o «Instalar aplicación».</p>
+                <p>La verás con tu logo de Vesti. Necesitas conexión para guardar cambios y usar el probador.</p>
+              </details>
               <button
                 className="text-button"
                 onClick={() =>

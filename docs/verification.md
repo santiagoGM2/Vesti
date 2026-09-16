@@ -1,5 +1,22 @@
 # Verificación de la primera versión
 
+## Identidad y experiencia — 16 septiembre 2026
+
+- Logo original adaptado a WebP 256 px, iconos PNG 192/512 px, Apple 180 px y navegador 48 px. Dimensiones verificadas con Sharp.
+- Manifest con nombre Vesti, inicio `/`, modo standalone y rutas de iconos; metadata Apple configurada. La instalación física en iOS/Android queda por comprobar en el dispositivo del propietario.
+- Playwright mediante navegador integrado: bienvenida a 390×844 sin desbordamiento horizontal; navegación al probador, combinación de ejemplo guardada y visible en Mis looks; revisión visual a 1440×1000.
+- Compilación de producción y comprobación de tipos correctas. No se ejecutaron generaciones pagadas.
+- URLs privadas firmadas por lote; subidas idénticas reutilizan un objeto por hash dentro de la carpeta del usuario. La prueba real de subida queda a cargo del propietario.
+
+## Integración económica — 16 septiembre 2026
+
+- 13 pruebas locales correctas, con proveedores simulados: modelo Haiku, una salida 1K por operación, ausencia de reintentos automáticos, rechazo de URLs arbitrarias, checkpoints firmados, caché sin nuevo pago, recuperación de ID previo y rechazo seguro de duplicados inciertos.
+- SQL en transacción con rollback: la cuenta A no puede leer ni crear caché para B.
+- La URL pública entregada por el propietario respondió HTTP 200 con el título Vesti; esto no certifica las variables de producción ni el flujo de registro.
+- No se ejecutaron llamadas de generación pagadas. Las pruebas visuales con fotos reales quedan a cargo del propietario.
+
+## Historial
+
 15 septiembre 2026.
 
 - `npm run build`: correcto con las variables públicas del nuevo proyecto Supabase.

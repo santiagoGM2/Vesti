@@ -1,5 +1,7 @@
 # Vesti: producto y arquitectura
 
+> Actualización 16 septiembre: la implementación actual usa Claude Haiku 4.5 para análisis y FASHN fast/1K para imágenes. Sustituye el adaptador OpenAI descrito en la investigación inicial de este documento. Ver `deployment.md` y README para configuración vigente. El cuerpo con rostro visible es la referencia de FASHN; el retrato separado no se procesa en este modo. Se añadió caché por usuario con checkpoints firmados y recuperación del ID de generación.
+
 ## Referencia pública: Alta Daily
 
 Investigación realizada el 15 de septiembre de 2026 sobre https://www.altadaily.com/. Su página pública describe armario digital con fotografías de estudio; avatar/probador virtual; recomendaciones diarias y clima; calendario de estilo; planificación de viajes; wishlist y avisos de precio; comunidad. No se inspeccionó una cuenta privada ni se verificaron detalles internos o algoritmos de Alta. Vesti tiene identidad y componentes originales.

@@ -12,6 +12,7 @@ export const categories = [
 ] as const;
 export type Category = (typeof categories)[number];
 export type Garment = {
+  onPerson?: boolean;
   id: string;
   name: string;
   category: Category;

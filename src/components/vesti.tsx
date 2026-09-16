@@ -38,6 +38,8 @@ import {
 import { recommend, occasions } from "@/lib/recommendations";
 import { supabase } from "@/lib/supabase";
 import { loadWardrobe, saveWardrobe, upload, studio } from "@/lib/storage";
+import { selectPiece } from "@/lib/look-selection";
+import { transparentPhoto } from "@/lib/remove-background";
 type Screen = "Inicio" | "Clóset" | "Perfil";
 type Draft = Garment & { source: string };
 function Collage({ items }: { items: Garment[] }) {
@@ -441,12 +443,9 @@ export function Vesti() {
           if (!response) throw lastError || Error("No se pudo analizar la foto.");
           if (!response.garments.length)
             throw Error("No detectamos prendas visibles. Prueba otra foto con mejor luz.");
-          setQueue((q) => q.map((row, n) => n === i ? { ...row, status: "Separando prendas…" } : row));
-          const extracted = await studio({
-            action: "extract",
-            path: source,
-            garments: response.garments,
-          });
+          // Review detections before any further processing. Uploading a photo
+          // never submits a paid image generation.
+          const extracted = response;
           detectedTotal += extracted.garments.length;
           setDrafts((d) => [
             ...d,
@@ -455,7 +454,7 @@ export function Vesti() {
               source,
               id: crypto.randomUUID(),
               favorite: false,
-              cleaned: true,
+              cleaned: false,
             })),
           ]);
           setQueue((q) =>
@@ -463,7 +462,7 @@ export function Vesti() {
               n === i
                 ? {
                     ...row,
-                    status: `${extracted.garments.length} prendas separadas`,
+                    status: `${extracted.garments.length} prendas para revisar`,
                   }
                 : row,
             ),
@@ -511,17 +510,23 @@ export function Vesti() {
   }
   async function clean(g: Draft) {
     await run(`Mejorando ${g.name}…`, async () => {
-      const response = await studio({
-        action: "clean",
-        path: g.path || g.source,
-        garment: g,
-      });
+      const response = await removePhotoBackground(g);
       draftChange(g.id, { ...response, cleaned: true });
-      setNotice(`${g.name} ya tiene acabado de estudio.`);
+      setNotice(`${g.name}: fondo retirado. Revisa los bordes antes de guardar.`);
     });
   }
+  async function removePhotoBackground(g: Garment) {
+    if (g.onPerson !== false)
+      throw Error("Esta prenda está puesta en una persona. Para aislarla sin reconstrucción de pago, sube una foto de la prenda sola, extendida o colgada.");
+    if (!g.image) throw Error("Vuelve a abrir la prenda para cargar su foto.");
+    const file = await transparentPhoto(g.image, setBusy);
+    const path = await upload(file);
+    const signed = await supabase!.storage.from("vesti-private").createSignedUrl(path, 3600);
+    if (signed.error) throw Error("No pudimos abrir la prenda sin fondo.");
+    return { path, image: signed.data.signedUrl };
+  }
   async function cleanAll() {
-    const pending = drafts.filter((g) => !g.cleaned);
+    const pending = drafts.filter((g) => !g.cleaned && g.onPerson === false);
     if (!pending.length) return;
     await run(`Creando ${pending.length} fotos de estudio…`, async () => {
       let completed = 0;
@@ -529,11 +534,7 @@ export function Vesti() {
       for (const garment of pending) {
         setBusy(`Embelleciendo ${completed + failed + 1} de ${pending.length}…`);
         try {
-          const response = await studio({
-            action: "clean",
-            path: garment.path || garment.source,
-            garment,
-          });
+          const response = await removePhotoBackground(garment);
           setDrafts((rows) =>
             rows.map((row) =>
               row.id === garment.id
@@ -548,7 +549,7 @@ export function Vesti() {
       }
       if (!completed)
         throw Error(
-          "No pudimos crear las fotos de estudio. Tu saldo no se volverá a usar al recuperar solicitudes pendientes.",
+          "No pudimos quitar el fondo. No se ha gastado saldo FASHN. Prueba una foto de la prenda sola.",
         );
       setNotice(
         failed
@@ -1573,11 +1574,7 @@ export function Vesti() {
                   void run("Mejorando tu prenda…", async () => {
                     if (demo)
                       throw Error("Crea una cuenta para mejorar fotos.");
-                    const response = await studio({
-                      action: "clean",
-                      path: editingGarment.path,
-                      garment: editingGarment,
-                    });
+                    const response = await removePhotoBackground(editingGarment);
                     const next = {
                       ...editingGarment,
                       ...response,
@@ -1594,8 +1591,15 @@ export function Vesti() {
                 }
               >
                 <Sparkle />
-                Foto de estudio · gratis
+                Quitar fondo · gratis
               </button>
+            )}
+            {!editingGarment.cleaned && (
+              <label className="consent">
+                <input type="checkbox" checked={editingGarment.onPerson === false}
+                  onChange={e => setEditingGarment({ ...editingGarment, onPerson: !e.target.checked })} />
+                Esta foto muestra la prenda sola, sin una persona.
+              </label>
             )}
             <button
               className="delete-garment"
@@ -1607,9 +1611,7 @@ export function Vesti() {
                     garments: latest.current.garments.filter(
                       (g) => g.id !== editingGarment.id,
                     ),
-                    looks: latest.current.looks.filter(
-                      (look) => !look.ids.includes(editingGarment.id),
-                    ),
+                    looks: latest.current.looks.map(look => ({ ...look, ids: look.ids.filter(id => id !== editingGarment.id) })),
                   };
                   await persist(next);
                   setSelected((ids) => ids.filter((id) => id !== editingGarment.id));
@@ -1630,8 +1632,7 @@ export function Vesti() {
               <Camera size={30} />
               <strong>Selecciona una o varias fotos</strong>
               <span>
-                Ropa u outfits completos · hasta 10 fotos · una extracción de
-                estudio por foto
+                Ropa u outfits completos · hasta 10 fotos · revisa y elige qué guardar
               </span>
               <input
                 type="file"
@@ -1645,8 +1646,9 @@ export function Vesti() {
               />
             </label>
             <p className="sheet-note">
-              Cada foto usa 1 crédito para reconstruir todas sus prendas sobre
-              fondo blanco. Después cada pieza se guarda y se reutiliza sin coste.
+              Revisamos la prenda principal o la ropa de la persona protagonista.
+              Subir fotos no consume créditos FASHN; el análisis usa tu saldo de Claude.
+              Para quitar el fondo gratis, fotografía la prenda sola. Revisa el resultado antes de guardarlo.
             </p>
             {queue.map((q, i) => (
               <div className="queue-row" key={`${q.name}-${i}`}>
@@ -1654,20 +1656,20 @@ export function Vesti() {
                 <small>{q.status}</small>
               </div>
             ))}
-            {!!drafts.filter((g) => !g.cleaned).length && (
+            {!!drafts.filter((g) => !g.cleaned && g.onPerson === false).length && (
               <section className="studio-batch" aria-label="Acabado de estudio">
                 <div>
                   <Sparkle weight="fill" />
                   <span>
-                    <strong>Embellecer todas</strong>
-                    Fondo blanco y acabado de catálogo
+                    <strong>Quitar fondo de prendas solas</strong>
+                    PNG transparente · se procesa en tu dispositivo
                   </span>
                 </div>
                 <button
                   disabled={!!busy}
                   onClick={() => void cleanAll()}
                 >
-                  Preparar {drafts.filter((g) => !g.cleaned).length} · gratis
+                  Quitar fondo · gratis
                 </button>
               </section>
             )}
@@ -1728,7 +1730,7 @@ export function Vesti() {
                         onClick={() => void clean(g)}
                       >
                         <Sparkle />
-                        {g.cleaned ? "Lista" : "Preparar · gratis"}
+                        {g.cleaned ? "Sin fondo" : "Quitar fondo · gratis"}
                       </button>
                       <button
                         disabled={!!busy || !g.name.trim()}
@@ -1738,6 +1740,13 @@ export function Vesti() {
                         Agregar
                       </button>
                     </div>
+                    {!g.cleaned && (
+                      <label className="consent">
+                        <input type="checkbox" checked={g.onPerson === false}
+                          onChange={e => draftChange(g.id, { onPerson: !e.target.checked })} />
+                        Prenda sola, sin persona
+                      </label>
+                    )}
                   </div>
                 </div>
               </article>
@@ -1801,7 +1810,7 @@ export function Vesti() {
             <p className="editor-cost">
               {result
                 ? "Esta imagen queda guardada con tu look."
-                : "1 crédito FASHN por look completo. Las fotos de estudio se preparan gratis y se reutilizan."}
+                : "Generar el avatar usa saldo FASHN. Elegir prendas y quitar el fondo de prendas solas no consume créditos FASHN."}
             </p>
             <p className="editor-cost">
               El probador conserva el rostro de tu foto de cuerpo entero. El
@@ -1834,15 +1843,13 @@ export function Vesti() {
                   aria-pressed={selected.includes(g.id)}
                   disabled={!!busy}
                   onClick={() => {
-                    if (selected.length >= 6 && !selected.includes(g.id)) {
+                    const next = selectPiece(selected, g, items);
+                    if (next.length > 6) {
                       setError("Puedes combinar hasta 6 piezas por look.");
                       return;
                     }
-                    setSelected((s) =>
-                      s.includes(g.id)
-                        ? s.filter((id) => id !== g.id)
-                        : [...s, g.id],
-                    );
+                    setSelected(next);
+                    setNotice(selected.includes(g.id) ? "Prenda retirada del look." : `${g.name} seleccionada. Sustituye cualquier pieza del mismo tipo.`);
                     setResult(null);
                   }}
                 >

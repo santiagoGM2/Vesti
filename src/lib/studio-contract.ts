@@ -1,5 +1,6 @@
 import { z } from "zod";
 export const garmentSchema = z.object({
+  onPerson: z.boolean().default(true),
   name: z.string().min(1).max(100),
   category: z.enum([
     "Tops",

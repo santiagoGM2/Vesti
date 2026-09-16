@@ -1,4 +1,5 @@
 import { type Garment, type Profile, type Category } from "./model";
+import { compatible } from "./look-selection";
 
 export const occasions = [
   { name: "Universidad", formality: 1 },
@@ -56,5 +57,8 @@ export function recommend(
     warmth >= 2 ? choose(["Abrigos"]) : undefined,
     choose(["Bolsos", "Accesorios"]),
     choose(["Joyería"]),
-  ].filter((g): g is Garment => !!g);
+  ].filter((g): g is Garment => !!g).reduce<Garment[]>((chosen, garment) => {
+    if (chosen.every(other => compatible(other, garment))) chosen.push(garment);
+    return chosen;
+  }, []);
 }

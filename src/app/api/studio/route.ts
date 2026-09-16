@@ -15,6 +15,7 @@ import {
 } from "@/lib/studio-providers";
 import { cacheKey, requestCache } from "@/lib/studio-cache";
 import { cropRectangle } from "@/lib/crop";
+import { compatible } from "@/lib/look-selection";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
@@ -42,6 +43,8 @@ export async function POST(request: Request) {
     if (raw.length > 16000)
       throw new StudioError("Solicitud demasiado grande.", 413);
     const body = studioSchema.parse(JSON.parse(raw));
+    if (["extract", "clean"].includes(body.action))
+      throw new StudioError("Actualiza Vesti. La extracción automática de pago está desactivada; usa Quitar fondo en la nueva versión.", 409);
     const providerKey =
       body.action === "analyze"
         ? process.env.ANTHROPIC_API_KEY
@@ -74,6 +77,9 @@ export async function POST(request: Request) {
       return Buffer.from(await data.arrayBuffer());
     }
     async function reserve() {
+      // The owner's testing account is exempt from the application's daily
+      // quota. Provider limits and balances still apply.
+      if (user?.email?.toLowerCase() === "santiagogomez3186@gmail.com") return;
       const { data, error } = await db.rpc("reserve_studio_request");
       if (error)
         throw new StudioError(
@@ -106,7 +112,7 @@ export async function POST(request: Request) {
       const image = await resize(await read(body.path), 1024);
       const hash = cacheKey(
         user.id,
-        VISION_MODEL + "inventory-v2" + image.toString("base64"),
+        VISION_MODEL + "inventory-subject-v3" + image.toString("base64"),
         providerKey,
       );
       const result = await cached(hash, async () => {
@@ -121,7 +127,7 @@ export async function POST(request: Request) {
           garment.bounds &&
           cropRectangle(garment.bounds, metadata.width!, metadata.height!);
         let path = body.path;
-        if (rect) {
+        if (rect && !(inventory.garments.length === 1 && garment.onPerson === false)) {
           path = `${user.id}/crop-${cacheKey(user.id, hash + JSON.stringify(rect), providerKey)}.jpeg`;
           const bytes = await sharp(image)
             .extract(rect)
@@ -276,6 +282,8 @@ export async function POST(request: Request) {
           "Usa prendas con foto guardada en tu armario.",
           400,
         );
+      if (garments.some((g, i) => garments.slice(i + 1).some(other => !compatible(g, other))))
+        throw new StudioError("Elige una sola prenda de cada tipo. Un vestido sustituye camisa y pantalón.", 400);
       const order: Record<string, number> = {
         Tops: 0,
         Pantalones: 1,

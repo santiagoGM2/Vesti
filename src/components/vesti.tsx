@@ -24,6 +24,10 @@ import {
   ArrowClockwise,
   Trash,
   CheckCircle,
+  Sun,
+  CloudSun,
+  CloudRain,
+  Snowflake,
 } from "@phosphor-icons/react";
 import { GarmentArt } from "./garment-art";
 import { Brand as Logo } from "./brand";
@@ -653,7 +657,7 @@ export function Vesti() {
         garments: updatedGarments,
         looks: updatedLooks,
       });
-      setNotice("¡Outfit registrado para hoy! ✨ Tu clóset digital sigue aprendiendo tu estilo.");
+      setNotice("¡Outfit registrado para hoy. Tu clóset digital sigue aprendiendo tu estilo.");
     });
   }
   const feedback = (
@@ -1150,7 +1154,17 @@ export function Vesti() {
                       onClick={() => setWeatherIndex(idx)}
                       title={wp.desc}
                     >
-                      <span className="weather-icon">{wp.icon}</span>
+                      <span className="weather-icon">
+                        {wp.iconKey === "sun" ? (
+                          <Sun size={17} weight="regular" />
+                        ) : wp.iconKey === "cloud-sun" ? (
+                          <CloudSun size={17} weight="regular" />
+                        ) : wp.iconKey === "cloud-rain" ? (
+                          <CloudRain size={17} weight="regular" />
+                        ) : (
+                          <Snowflake size={17} weight="regular" />
+                        )}
+                      </span>
                       <span className="weather-temp">{wp.temp}°C</span>
                       <span className="weather-label">{wp.label}</span>
                     </button>
@@ -1161,7 +1175,7 @@ export function Vesti() {
                     className={`occasion-pill ${selectedOccasion === null ? "active" : ""}`}
                     onClick={() => setSelectedOccasion(null)}
                   >
-                    ✨ Todas
+                    Todas
                   </button>
                   {occasions.map((occ, idx) => (
                     <button
@@ -1344,13 +1358,15 @@ export function Vesti() {
                 className={`filter-chip ${seasonFilter === "Primavera / Verano" ? "active" : ""}`}
                 onClick={() => setSeasonFilter("Primavera / Verano")}
               >
-                ☀️ Primavera/Verano
+                <Sun size={13} />
+                Primavera / Verano
               </button>
               <button
                 className={`filter-chip ${seasonFilter === "Otoño / Invierno" ? "active" : ""}`}
                 onClick={() => setSeasonFilter("Otoño / Invierno")}
               >
-                ❄️ Otoño/Invierno
+                <Snowflake size={13} />
+                Otoño / Invierno
               </button>
               <button
                 className={`filter-chip studio-chip ${prettifiedOnly ? "active" : ""}`}
@@ -1481,7 +1497,7 @@ export function Vesti() {
                 <strong>{items.length}</strong>artículos
               </div>
               <div>
-                <strong>{items.filter((g) => g.cleaned).length}</strong>estudio ✨
+                <strong>{items.filter((g) => g.cleaned).length}</strong>en estudio
               </div>
             </div>
             {(() => {
@@ -1981,7 +1997,7 @@ export function Vesti() {
                         onClick={() => void clean(g)}
                       >
                         <Sparkle />
-                        {g.cleaned ? "✨ Prettified" : "✨ Prettify (Estudio)"}
+                        {g.cleaned ? "Foto lista" : "Foto de estudio"}
                       </button>
                       <button
                         disabled={!!busy || !g.name.trim()}
@@ -2063,7 +2079,7 @@ export function Vesti() {
                 />
                 <span className="toggle-slider"></span>
               </label>
-              <span>{profile.face ? "Preservar mi rostro en alta definición (Avatar fotorrealista)" : "Rostro de referencia activo si subes foto en Perfil"}</span>
+              <span>{profile.face ? "Preservar mi rostro real exactamente (Sin alteraciones de IA)" : "Rostro de referencia activo si subes foto en Perfil"}</span>
             </div>
             <p className="editor-cost">
               {result

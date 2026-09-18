@@ -333,21 +333,13 @@ export async function POST(request: Request) {
         model_image: modelImage,
         product_image: productImage,
         seed: body.seed,
-        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. ${bodyTraits ? `The model has natural ${bodyTraits}. ` : ""}Preserve the face pixel-faithfully from the person photo, especially eye shape, eye direction, iris color, eyelids, eyebrows, nose, mouth, expression, hairline and facial proportions. Do not retouch, beautify, enlarge eyes, change gaze, change age or change identity. Preserve the exact body proportions, skin tone and pose. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
+        category: "auto",
+        prompt: `Dress the person in the exact clothing pieces shown on the reference sheet: ${garments.map((g) => g.name).join(", ")}.
+CRITICAL REQUIREMENT - ZERO MODIFICATION TO HEAD OR FACE:
+Keep the person's real face, eyes, gaze, eyelids, eyebrows, nose, mouth, lips, smile, facial structure, skin texture, complexion, ears, hair, and expression 100% untouched and identical to the original photo.
+Do not generate an artificial AI face. Do not modify, beautify, retouch, change age, or alter the head or facial features.
+Only replace the clothing on the body. Preserve the natural pose, proportions, and lighting.`,
       });
-      if (body.useFace && state.profile.face) {
-        try {
-          const faceRef = await imageData(state.profile.face);
-          const tryonImage = await imageData(path);
-          path = await generate("model-swap", {
-            model_image: tryonImage,
-            face_reference: faceRef,
-            prompt: "Preserve the clothing outfit, pose, and background exactly intact. Seamlessly align facial identity, eye shape, smile, and facial structure to the reference face image.",
-          });
-        } catch (swapErr) {
-          console.warn("Model swap fallback to tryon-max output:", swapErr);
-        }
-      }
     }
     const { data: signed, error: signError } = await db.storage
       .from("vesti-private")

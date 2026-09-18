@@ -62,10 +62,10 @@ export function recommend(
 }
 
 export const weatherPresets = [
-  { label: "Cálido", temp: 26, icon: "☀️", desc: "Día soleado y ligero" },
-  { label: "Templado", temp: 20, icon: "⛅", desc: "Clima equilibrado" },
-  { label: "Lluvioso", temp: 14, icon: "🌧️", desc: "Fresco y con lluvia" },
-  { label: "Frío", temp: 8, icon: "❄️", desc: "Capas para el frío" },
+  { label: "Cálido", temp: 26, iconKey: "sun", desc: "Día soleado y ligero" },
+  { label: "Templado", temp: 20, iconKey: "cloud-sun", desc: "Clima equilibrado" },
+  { label: "Lluvioso", temp: 14, iconKey: "cloud-rain", desc: "Fresco y con lluvia" },
+  { label: "Frío", temp: 8, iconKey: "snowflake", desc: "Capas para el frío" },
 ] as const;
 
 export function getStylistAdvice(

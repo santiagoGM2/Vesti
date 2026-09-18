@@ -26,6 +26,10 @@ export type Garment = {
   formality?: number;
   source?: string;
   cleaned?: boolean;
+  season?: "Primavera / Verano" | "Otoño / Invierno" | "Todas las estaciones";
+  material?: string;
+  style?: string;
+  wearCount?: number;
 };
 export type Look = {
   id: string;
@@ -45,6 +49,10 @@ export type Profile = {
   onboarded?: boolean;
   faceImage?: string;
   bodyImage?: string;
+  bodyType?: "Reloj de arena" | "Rectangular" | "Triángulo" | "Triángulo invertido" | "Atlético";
+  skinTone?: "Claro" | "Medio" | "Bronceado" | "Moreno" | "Oscuro";
+  hairStyle?: string;
+  height?: string;
 };
 export type Wardrobe = { profile: Profile; garments: Garment[]; looks: Look[] };
 export const initial: Wardrobe = {

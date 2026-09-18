@@ -35,7 +35,7 @@ import {
   type Wardrobe,
   type Profile,
 } from "@/lib/model";
-import { recommend, occasions } from "@/lib/recommendations";
+import { recommend, occasions, weatherPresets, getStylistAdvice } from "@/lib/recommendations";
 import { supabase } from "@/lib/supabase";
 import { loadWardrobe, saveWardrobe, upload, studio } from "@/lib/storage";
 import { selectPiece } from "@/lib/look-selection";
@@ -86,9 +86,13 @@ export function Vesti() {
       null,
     ),
     [showAvatar, setShowAvatar] = useState(true),
-    [variant, setVariant] = useState(0);
+    [variant, setVariant] = useState(0),
+    [selectedOccasion, setSelectedOccasion] = useState<number | null>(null);
   const [useFace, setUseFace] = useState(false),
     [seed, setSeed] = useState(42);
+  const [weatherIndex, setWeatherIndex] = useState<number>(0);
+  const [seasonFilter, setSeasonFilter] = useState<string>("Todas");
+  const [prettifiedOnly, setPrettifiedOnly] = useState<boolean>(false);
   const [weather, setWeather] = useState<{
     temperature: number;
     description: string;
@@ -509,32 +513,46 @@ export function Vesti() {
     });
   }
   async function clean(g: Draft) {
-    await run(`Mejorando ${g.name}…`, async () => {
-      const response = await removePhotoBackground(g);
+    await run(`Creando foto de estudio de ${g.name}…`, async () => {
+      const response = await makeStudioPhoto(g);
       draftChange(g.id, { ...response, cleaned: true });
-      setNotice(`${g.name}: fondo retirado. Revisa los bordes antes de guardar.`);
+      setNotice(`${g.name}: foto de estudio lista sin fondo ni arrugas.`);
     });
   }
-  async function removePhotoBackground(g: Garment) {
-    if (g.onPerson !== false)
-      throw Error("Esta prenda está puesta en una persona. Para aislarla sin reconstrucción de pago, sube una foto de la prenda sola, extendida o colgada.");
-    if (!g.image) throw Error("Vuelve a abrir la prenda para cargar su foto.");
-    const file = await transparentPhoto(g.image, setBusy);
-    const path = await upload(file);
-    const signed = await supabase!.storage.from("vesti-private").createSignedUrl(path, 3600);
-    if (signed.error) throw Error("No pudimos abrir la prenda sin fondo.");
-    return { path, image: signed.data.signedUrl };
+  async function makeStudioPhoto(g: Garment) {
+    if (!g.path) throw Error("La prenda no tiene foto asociada.");
+    // Si la prenda está puesta en una persona o es de una foto normal, la transformamos a foto de estudio con IA
+    if (g.onPerson !== false) {
+      setBusy(`Generando foto de estudio sin arrugas ni persona para ${g.name}…`);
+      const response = await studio({ action: "clean", path: g.path, garment: g });
+      return { path: response.path, image: response.image };
+    }
+    // Si la prenda ya fue fotografiada sola, intentamos fondo transparente
+    try {
+      if (g.image) {
+        const file = await transparentPhoto(g.image, setBusy);
+        const path = await upload(file);
+        const signed = await supabase!.storage.from("vesti-private").createSignedUrl(path, 3600);
+        if (!signed.error && signed.data) {
+          return { path, image: signed.data.signedUrl };
+        }
+      }
+    } catch {
+      // Fallback a API de estudio si falla en el navegador
+    }
+    const response = await studio({ action: "clean", path: g.path, garment: g });
+    return { path: response.path, image: response.image };
   }
   async function cleanAll() {
-    const pending = drafts.filter((g) => !g.cleaned && g.onPerson === false);
+    const pending = drafts.filter((g) => !g.cleaned);
     if (!pending.length) return;
     await run(`Creando ${pending.length} fotos de estudio…`, async () => {
       let completed = 0;
       let failed = 0;
       for (const garment of pending) {
-        setBusy(`Embelleciendo ${completed + failed + 1} de ${pending.length}…`);
+        setBusy(`Creando foto de estudio (${completed + failed + 1} de ${pending.length}): ${garment.name}…`);
         try {
-          const response = await removePhotoBackground(garment);
+          const response = await makeStudioPhoto(garment);
           setDrafts((rows) =>
             rows.map((row) =>
               row.id === garment.id
@@ -549,7 +567,7 @@ export function Vesti() {
       }
       if (!completed)
         throw Error(
-          "No pudimos quitar el fondo. No se ha gastado saldo FASHN. Prueba una foto de la prenda sola.",
+          "No pudimos crear las fotos de estudio. Revisa tu conexión y vuelve a intentar.",
         );
       setNotice(
         failed
@@ -559,15 +577,29 @@ export function Vesti() {
     });
   }
   async function generate() {
-    await run("Creando tu avatar. Guardamos cada paso…", async () => {
+    await run("Analizando silueta y prendas seleccionadas…", async () => {
       if (demo)
         throw Error(
           "Crea una cuenta y añade tus fotos para probarte este look.",
         );
-      setResult(
-        await studio({ action: "tryon", ids: selected, useFace, seed }),
-      );
-      setShowAvatar(true);
+      const timer = setTimeout(() => {
+        setBusy("Ajustando drapeado de prendas a tu complexión…");
+      }, 5000);
+      const timer2 = setTimeout(() => {
+        setBusy(
+          useFace
+            ? "Renderizando avatar con tu rostro en alta definición…"
+            : "Renderizando avatar en estudio con iluminación profesional…",
+        );
+      }, 12000);
+      try {
+        const res = await studio({ action: "tryon", ids: selected, useFace, seed });
+        setResult(res);
+        setShowAvatar(true);
+      } finally {
+        clearTimeout(timer);
+        clearTimeout(timer2);
+      }
     });
   }
   async function saveLook() {
@@ -588,6 +620,40 @@ export function Vesti() {
       setSheet(null);
       setScreen("Perfil");
       setNotice("Tu look está guardado.");
+    });
+  }
+  async function logWearToday(outfit: Garment[], occasionName: string) {
+    await run("Registrando outfit de hoy…", async () => {
+      const today = new Date().toISOString().split("T")[0];
+      const outfitIds = outfit.map((g) => g.id);
+      const updatedGarments = latest.current.garments.map((g) =>
+        outfitIds.includes(g.id)
+          ? { ...g, wearCount: (g.wearCount || 0) + 1 }
+          : g,
+      );
+      const existingLook = latest.current.looks.find(
+        (l) =>
+          l.date === today &&
+          l.ids.length === outfitIds.length &&
+          l.ids.every((id) => outfitIds.includes(id)),
+      );
+      const updatedLooks = existingLook
+        ? latest.current.looks
+        : [
+            {
+              id: crypto.randomUUID(),
+              name: `${occasionName} · ${today}`,
+              ids: outfitIds,
+              date: today,
+            },
+            ...latest.current.looks,
+          ];
+      await persist({
+        ...latest.current,
+        garments: updatedGarments,
+        looks: updatedLooks,
+      });
+      setNotice("¡Outfit registrado para hoy! ✨ Tu clóset digital sigue aprendiendo tu estilo.");
     });
   }
   const feedback = (
@@ -1054,6 +1120,15 @@ export function Vesti() {
               </section>
             ) : (
               <>
+                <div className="valentine-banner">
+                  <div className="valentine-badge">
+                    <Heart size={14} weight="fill" />
+                    <span>Especial Día de Amor y Amistad</span>
+                  </div>
+                  <p>
+                    Creado con amor para que siempre brilles. Tu clóset digital y estilista personal con IA.
+                  </p>
+                </div>
                 <div className="home-prompt">
                   <Sparkle size={21} />
                   <span>¿Qué te vas a poner hoy?</span>
@@ -1065,75 +1140,133 @@ export function Vesti() {
                     <ArrowRight />
                   </button>
                 </div>
+                <div className="weather-strip" role="radiogroup" aria-label="Clima de hoy">
+                  {weatherPresets.map((wp, idx) => (
+                    <button
+                      key={wp.label}
+                      role="radio"
+                      aria-checked={weatherIndex === idx}
+                      className={`weather-pill ${weatherIndex === idx ? "active" : ""}`}
+                      onClick={() => setWeatherIndex(idx)}
+                      title={wp.desc}
+                    >
+                      <span className="weather-icon">{wp.icon}</span>
+                      <span className="weather-temp">{wp.temp}°C</span>
+                      <span className="weather-label">{wp.label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="occasion-strip" role="tablist" aria-label="Ocasiones de estilo">
+                  <button
+                    className={`occasion-pill ${selectedOccasion === null ? "active" : ""}`}
+                    onClick={() => setSelectedOccasion(null)}
+                  >
+                    ✨ Todas
+                  </button>
+                  {occasions.map((occ, idx) => (
+                    <button
+                      key={occ.name}
+                      className={`occasion-pill ${selectedOccasion === idx ? "active" : ""}`}
+                      onClick={() => setSelectedOccasion(idx)}
+                    >
+                      {occ.name}
+                    </button>
+                  ))}
+                </div>
                 <div className="looks-feed">
-                  {occasions.map((occasion, i) => {
-                    const outfit = recommend(
-                      items,
-                      profile,
-                      i,
-                      weather?.temperature,
-                      variant,
-                    );
-                    return (
-                      <article className="outfit-card" key={occasion.name}>
-                        <header>
-                          <h2>{occasion.name}</h2>
-                          <span>
-                            {i === 1
-                              ? "Un poco más formal"
-                              : i === 2
-                                ? "A tu manera"
-                                : "Cómodo y tuyo"}
-                          </span>
-                        </header>
-                        <Collage items={outfit} />
-                        <footer>
-                          <button
-                            className="icon-button"
-                            aria-label={`Guardar look ${occasion.name}`}
-                            onClick={() =>
-                              edit(
-                                outfit.map((g) => g.id),
-                                occasion.name,
-                              )
-                            }
-                          >
-                            <Heart size={25} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            aria-label={`Editar ${occasion.name}`}
-                            onClick={() =>
-                              edit(
-                                outfit.map((g) => g.id),
-                                occasion.name,
-                              )
-                            }
-                          >
-                            <PencilSimple size={24} />
-                          </button>
-                          <button
-                            className="icon-button"
-                            aria-label="Otra combinación"
-                            onClick={() => setVariant((v) => v + 1)}
-                          >
-                            <ArrowClockwise size={23} />
-                          </button>
-                          <button
-                            className="primary"
-                            onClick={() =>
-                              edit(
-                                outfit.map((g) => g.id),
-                                occasion.name,
-                              )
-                            }
-                          >
-                            Crear avatar
-                          </button>
-                        </footer>
-                      </article>
-                    );
-                  })}
+                  {occasions
+                    .map((occasion, i) => ({ occasion, i }))
+                    .filter(({ i }) => selectedOccasion === null || selectedOccasion === i)
+                    .map(({ occasion, i }) => {
+                      const activeTemp = weatherPresets[weatherIndex].temp;
+                      const outfit = recommend(
+                        items,
+                        profile,
+                        i,
+                        activeTemp,
+                        variant,
+                      );
+                      return (
+                        <article className="outfit-card" key={occasion.name}>
+                          <header>
+                            <div>
+                              <h2>{occasion.name}</h2>
+                              <small className="occasion-desc">{occasion.description || "Tu estilo auténtico"}</small>
+                            </div>
+                            <span>
+                              {occasion.formality === 2
+                                ? "Elegante"
+                                : occasion.formality === 0
+                                  ? "Casual relax"
+                                  : "Versátil"}
+                            </span>
+                          </header>
+                          <Collage items={outfit} />
+                          <div className="stylist-advice-box">
+                            <div className="stylist-title">
+                              <Sparkle size={14} weight="fill" />
+                              <span>Consejo de Estilista IA</span>
+                            </div>
+                            <p className="stylist-text">
+                              {getStylistAdvice(outfit, occasion, activeTemp)}
+                            </p>
+                          </div>
+                          <footer>
+                            <button
+                              className="icon-button"
+                              aria-label={`Guardar look ${occasion.name}`}
+                              onClick={() =>
+                                edit(
+                                  outfit.map((g) => g.id),
+                                  occasion.name,
+                                )
+                              }
+                            >
+                              <Heart size={25} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              aria-label={`Editar ${occasion.name}`}
+                              onClick={() =>
+                                edit(
+                                  outfit.map((g) => g.id),
+                                  occasion.name,
+                                )
+                              }
+                            >
+                              <PencilSimple size={24} />
+                            </button>
+                            <button
+                              className="icon-button"
+                              aria-label="Otra combinación"
+                              onClick={() => setVariant((v) => v + 1)}
+                            >
+                              <ArrowClockwise size={23} />
+                            </button>
+                            <button
+                              className="icon-button wear-check"
+                              title="Usé este look hoy"
+                              aria-label="Registrar que usé este outfit hoy"
+                              onClick={() => void logWearToday(outfit, occasion.name)}
+                            >
+                              <CheckCircle size={23} />
+                            </button>
+                            <button
+                              className="primary"
+                              onClick={() =>
+                                edit(
+                                  outfit.map((g) => g.id),
+                                  occasion.name,
+                                )
+                              }
+                            >
+                              <Sparkle size={16} />
+                              Crear avatar
+                            </button>
+                          </footer>
+                        </article>
+                      );
+                    })}
                 </div>
                 <p className="small-note">
                   Ideas con las prendas de tu clóset
@@ -1165,6 +1298,13 @@ export function Vesti() {
             <div className="closet-toolbar">
               <span>{items.length} artículos</span>
               <button
+                className="closet-breakdown-btn"
+                onClick={() => setSheet("upload")}
+              >
+                <Sparkle size={15} />
+                Desglosar outfit con IA
+              </button>
+              <button
                 className={`icon-button ${favorites ? "selected" : ""}`}
                 aria-label="Mostrar favoritos"
                 aria-pressed={favorites}
@@ -1193,6 +1333,33 @@ export function Vesti() {
                 </button>
               ))}
             </div>
+            <div className="closet-subfilters">
+              <button
+                className={`filter-chip ${seasonFilter === "Todas" ? "active" : ""}`}
+                onClick={() => setSeasonFilter("Todas")}
+              >
+                Todas temporadas
+              </button>
+              <button
+                className={`filter-chip ${seasonFilter === "Primavera / Verano" ? "active" : ""}`}
+                onClick={() => setSeasonFilter("Primavera / Verano")}
+              >
+                ☀️ Primavera/Verano
+              </button>
+              <button
+                className={`filter-chip ${seasonFilter === "Otoño / Invierno" ? "active" : ""}`}
+                onClick={() => setSeasonFilter("Otoño / Invierno")}
+              >
+                ❄️ Otoño/Invierno
+              </button>
+              <button
+                className={`filter-chip studio-chip ${prettifiedOnly ? "active" : ""}`}
+                onClick={() => setPrettifiedOnly(!prettifiedOnly)}
+              >
+                <Sparkle size={13} weight="fill" />
+                Solo Estudio IA
+              </button>
+            </div>
             {items.length ? (
               <div className="closet-grid">
                 {items
@@ -1200,7 +1367,9 @@ export function Vesti() {
                     (g) =>
                       (category === "Todas" || g.category === category) &&
                       (!favorites || g.favorite) &&
-                      `${g.name} ${g.color} ${g.brand || ""}`
+                      (seasonFilter === "Todas" || g.season === seasonFilter || !g.season) &&
+                      (!prettifiedOnly || g.cleaned) &&
+                      `${g.name} ${g.color} ${g.brand || ""} ${g.material || ""}`
                         .toLowerCase()
                         .includes(search.toLowerCase()),
                   )
@@ -1216,6 +1385,11 @@ export function Vesti() {
                           <span className="studio-mark">
                             <Sparkle weight="fill" />
                             Estudio
+                          </span>
+                        )}
+                        {!!g.wearCount && (
+                          <span className="wear-mark">
+                            {g.wearCount}x
                           </span>
                         )}
                       </button>
@@ -1306,7 +1480,24 @@ export function Vesti() {
               <div>
                 <strong>{items.length}</strong>artículos
               </div>
+              <div>
+                <strong>{items.filter((g) => g.cleaned).length}</strong>estudio ✨
+              </div>
             </div>
+            {(() => {
+              const mostWorn = [...items]
+                .filter((g) => (g.wearCount || 0) > 0)
+                .sort((a, b) => (b.wearCount || 0) - (a.wearCount || 0))[0];
+              if (!mostWorn) return null;
+              return (
+                <div className="most-worn-banner">
+                  <Sparkle size={15} weight="fill" />
+                  <span>
+                    Tu prenda favorita: <strong>{mostWorn.name}</strong> (usada {mostWorn.wearCount} {mostWorn.wearCount === 1 ? "vez" : "veces"})
+                  </span>
+                </div>
+              );
+            })()}
             <button
               className="secondary wide"
               onClick={() => setSheet("profile")}
@@ -1536,19 +1727,53 @@ export function Vesti() {
                   ))}
               </select>
             </label>
-            <label>
-              Color
-              <input
-                maxLength={50}
-                value={editingGarment.color}
-                onChange={(e) =>
-                  setEditingGarment({
-                    ...editingGarment,
-                    color: e.target.value,
-                  })
-                }
-              />
-            </label>
+              <label>
+                Color
+                <input
+                  maxLength={50}
+                  value={editingGarment.color}
+                  onChange={(e) =>
+                    setEditingGarment({
+                      ...editingGarment,
+                      color: e.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Material
+                <input
+                  maxLength={50}
+                  placeholder="ej. Algodón, Lino, Denim"
+                  value={editingGarment.material || ""}
+                  onChange={(e) =>
+                    setEditingGarment({
+                      ...editingGarment,
+                      material: e.target.value,
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Temporada
+                <select
+                  value={editingGarment.season || "Todas las estaciones"}
+                  onChange={(e) =>
+                    setEditingGarment({
+                      ...editingGarment,
+                      season: e.target.value as Garment["season"],
+                    })
+                  }
+                >
+                  <option value="Todas las estaciones">Todas las estaciones</option>
+                  <option value="Primavera / Verano">Primavera / Verano</option>
+                  <option value="Otoño / Invierno">Otoño / Invierno</option>
+                </select>
+              </label>
+              <div className="garment-wear-stat">
+                <span>Frecuencia de uso:</span>
+                <strong>{editingGarment.wearCount ? `${editingGarment.wearCount} veces usada` : "Aún sin registrar"}</strong>
+              </div>
             <button
               className="primary wide"
               disabled={!!busy || !editingGarment.name.trim()}
@@ -1571,10 +1796,10 @@ export function Vesti() {
                 className="secondary wide"
                 disabled={!!busy}
                 onClick={() =>
-                  void run("Mejorando tu prenda…", async () => {
+                  void run("Creando foto de estudio…", async () => {
                     if (demo)
                       throw Error("Crea una cuenta para mejorar fotos.");
-                    const response = await removePhotoBackground(editingGarment);
+                    const response = await makeStudioPhoto(editingGarment);
                     const next = {
                       ...editingGarment,
                       ...response,
@@ -1587,19 +1812,13 @@ export function Vesti() {
                       ),
                     });
                     setEditingGarment(next);
+                    setNotice("Foto de estudio creada con éxito.");
                   })
                 }
               >
                 <Sparkle />
-                Quitar fondo · gratis
+                Crear foto de estudio sin arrugas ni persona
               </button>
-            )}
-            {!editingGarment.cleaned && (
-              <label className="consent">
-                <input type="checkbox" checked={editingGarment.onPerson === false}
-                  onChange={e => setEditingGarment({ ...editingGarment, onPerson: !e.target.checked })} />
-                Esta foto muestra la prenda sola, sin una persona.
-              </label>
             )}
             <button
               className="delete-garment"
@@ -1656,20 +1875,21 @@ export function Vesti() {
                 <small>{q.status}</small>
               </div>
             ))}
-            {!!drafts.filter((g) => !g.cleaned && g.onPerson === false).length && (
+            {!!drafts.filter((g) => !g.cleaned).length && (
               <section className="studio-batch" aria-label="Acabado de estudio">
                 <div>
                   <Sparkle weight="fill" />
                   <span>
-                    <strong>Quitar fondo de prendas solas</strong>
-                    PNG transparente · se procesa en tu dispositivo
+                    <strong>Desglose estilo foto estudio ({drafts.filter((g) => !g.cleaned).length} prendas)</strong>
+                    Aislar prendas, eliminar personas, quitar arrugas y limpiar fondo
                   </span>
                 </div>
                 <button
                   disabled={!!busy}
                   onClick={() => void cleanAll()}
                 >
-                  Quitar fondo · gratis
+                  <Sparkle />
+                  Crear fotos de estudio para todas
                 </button>
               </section>
             )}
@@ -1698,6 +1918,12 @@ export function Vesti() {
                 <div className="draft-row">
                   <div className="draft-image">
                     <GarmentArt garment={g} />
+                    {g.cleaned && (
+                      <span className="studio-mark">
+                        <Sparkle weight="fill" />
+                        Estudio
+                      </span>
+                    )}
                   </div>
                   <div className="draft-fields">
                     <input
@@ -1724,13 +1950,38 @@ export function Vesti() {
                           <option key={c}>{c}</option>
                         ))}
                     </select>
+                    <div className="draft-subtags">
+                      <input
+                        aria-label={`Material de ${g.name}`}
+                        maxLength={50}
+                        placeholder="Material (ej. Algodón, Denim)"
+                        value={g.material || ""}
+                        onChange={(e) =>
+                          draftChange(g.id, { material: e.target.value })
+                        }
+                      />
+                      <select
+                        aria-label={`Temporada de ${g.name}`}
+                        value={g.season || "Todas las estaciones"}
+                        onChange={(e) =>
+                          draftChange(g.id, {
+                            season: e.target.value as Garment["season"],
+                          })
+                        }
+                      >
+                        <option value="Todas las estaciones">Todas las estaciones</option>
+                        <option value="Primavera / Verano">Primavera / Verano</option>
+                        <option value="Otoño / Invierno">Otoño / Invierno</option>
+                      </select>
+                    </div>
                     <div className="draft-actions">
                       <button
+                        className={g.cleaned ? "draft-studio-btn is-cleaned" : "draft-studio-btn"}
                         disabled={!!busy || g.cleaned}
                         onClick={() => void clean(g)}
                       >
                         <Sparkle />
-                        {g.cleaned ? "Sin fondo" : "Quitar fondo · gratis"}
+                        {g.cleaned ? "✨ Prettified" : "✨ Prettify (Estudio)"}
                       </button>
                       <button
                         disabled={!!busy || !g.name.trim()}
@@ -1740,13 +1991,6 @@ export function Vesti() {
                         Agregar
                       </button>
                     </div>
-                    {!g.cleaned && (
-                      <label className="consent">
-                        <input type="checkbox" checked={g.onPerson === false}
-                          onChange={e => draftChange(g.id, { onPerson: !e.target.checked })} />
-                        Prenda sola, sin persona
-                      </label>
-                    )}
                   </div>
                 </div>
               </article>
@@ -1807,18 +2051,24 @@ export function Vesti() {
                 {result ? "Avatar listo" : "Crear avatar"}
               </button>
             </div>
+            <div className="face-toggle-row">
+              <label className="toggle-switch">
+                <input
+                  type="checkbox"
+                  checked={useFace}
+                  onChange={(e) => {
+                    setUseFace(e.target.checked);
+                    setResult(null);
+                  }}
+                />
+                <span className="toggle-slider"></span>
+              </label>
+              <span>{profile.face ? "Preservar mi rostro en alta definición (Avatar fotorrealista)" : "Rostro de referencia activo si subes foto en Perfil"}</span>
+            </div>
             <p className="editor-cost">
               {result
-                ? "Esta imagen queda guardada con tu look."
-                : "Generar el avatar usa saldo FASHN. Elegir prendas y quitar el fondo de prendas solas no consume créditos FASHN."}
-            </p>
-            <p className="editor-cost">
-              El probador conserva el rostro de tu foto de cuerpo entero. El
-              resultado es una simulación visual.
-            </p>
-            <p className="editor-cost face-note">
-              Tu cuerpo y rostro se conservan en la misma foto base. El resultado
-              siempre se presenta sobre fondo blanco.
+                ? "Esta prueba con tu avatar ha quedado guardada con tu look."
+                : "El avatar viste las prendas seleccionadas sobre tu cuerpo y rostro reales en fondo de estudio."}
             </p>
             {result && (
               <button
@@ -1915,6 +2165,96 @@ export function Vesti() {
               />
             </label>
             {photoFields}
+            <div className="profile-section-title">
+              <Sparkle size={15} weight="fill" />
+              <span>Personalización de tu Avatar Digital Twin</span>
+            </div>
+            <div className="profile-morphology-grid">
+              <label>
+                Silueta / Complexión
+                <select
+                  value={profile.bodyType || "Reloj de arena"}
+                  onChange={(e) => {
+                    const data = {
+                      ...latest.current,
+                      profile: {
+                        ...latest.current.profile,
+                        bodyType: e.target.value as Profile["bodyType"],
+                      },
+                    };
+                    latest.current = data;
+                    setWardrobe(data);
+                  }}
+                >
+                  <option value="Reloj de arena">Reloj de arena</option>
+                  <option value="Rectangular">Rectangular</option>
+                  <option value="Triángulo">Triángulo</option>
+                  <option value="Triángulo invertido">Triángulo invertido</option>
+                  <option value="Atlético">Atlético</option>
+                </select>
+              </label>
+              <label>
+                Tono de piel
+                <select
+                  value={profile.skinTone || "Claro"}
+                  onChange={(e) => {
+                    const data = {
+                      ...latest.current,
+                      profile: {
+                        ...latest.current.profile,
+                        skinTone: e.target.value as Profile["skinTone"],
+                      },
+                    };
+                    latest.current = data;
+                    setWardrobe(data);
+                  }}
+                >
+                  <option value="Claro">Claro</option>
+                  <option value="Medio">Medio</option>
+                  <option value="Bronceado">Bronceado</option>
+                  <option value="Moreno">Moreno</option>
+                  <option value="Oscuro">Oscuro</option>
+                </select>
+              </label>
+              <label>
+                Estilo de cabello
+                <input
+                  placeholder="ej. Largo castaño con ondas"
+                  value={profile.hairStyle || ""}
+                  maxLength={60}
+                  onChange={(e) => {
+                    const data = {
+                      ...latest.current,
+                      profile: {
+                        ...latest.current.profile,
+                        hairStyle: e.target.value,
+                      },
+                    };
+                    latest.current = data;
+                    setWardrobe(data);
+                  }}
+                />
+              </label>
+              <label>
+                Altura
+                <input
+                  placeholder="ej. 1.65 m"
+                  value={profile.height || ""}
+                  maxLength={20}
+                  onChange={(e) => {
+                    const data = {
+                      ...latest.current,
+                      profile: {
+                        ...latest.current.profile,
+                        height: e.target.value,
+                      },
+                    };
+                    latest.current = data;
+                    setWardrobe(data);
+                  }}
+                />
+              </label>
+            </div>
             <label className="consent">
               <input
                 type="checkbox"

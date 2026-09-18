@@ -43,8 +43,6 @@ export async function POST(request: Request) {
     if (raw.length > 16000)
       throw new StudioError("Solicitud demasiado grande.", 413);
     const body = studioSchema.parse(JSON.parse(raw));
-    if (["extract", "clean"].includes(body.action))
-      throw new StudioError("Actualiza Vesti. La extracción automática de pago está desactivada; usa Quitar fondo en la nueva versión.", 409);
     const providerKey =
       body.action === "analyze"
         ? process.env.ANTHROPIC_API_KEY
@@ -250,22 +248,28 @@ export async function POST(request: Request) {
     }
     let path: string;
     if (body.action === "clean") {
-      // Studio finish is intentionally local and free. Analysis already stores a
-      // tight crop; normalize it on a white canvas without spending FASHN credits.
-      const source = await read(body.path);
-      const normalized = await sharp(source, { limitInputPixels: 40000000 })
-        .rotate()
-        .resize({ width: 900, height: 900, fit: "contain", background: "#ffffff" })
-        .flatten({ background: "#ffffff" })
-        .png()
-        .toBuffer();
-      const hash = cacheKey(user.id, `local-studio-v2:${body.path}`, providerKey);
-      path = `${user.id}/studio-${hash}.png`;
-      const saved = await db.storage.from("vesti-private").upload(path, normalized, {
-        contentType: "image/png",
-        upsert: true,
-      });
-      if (saved.error) throw new StudioError("No pudimos guardar la foto de estudio.");
+      if (body.garment.onPerson !== false) {
+        path = await generate("edit", {
+          image: await imageData(body.path),
+          prompt: `High-end luxury ecommerce ghost-mannequin flat-lay product photograph of this garment (${body.garment.name}, ${body.garment.color}${body.garment.material ? `, ${body.garment.material}` : ""}) perfectly isolated on an immaculate solid pure white #FFFFFF background. Completely erase the person, head, neck, face, hands, limbs, skin, shadows, hanger, and background scenery. Reconstruct hidden necklines, inner back collar labels, hemlines, and waistbands with realistic interior fabric. Perfectly iron out, smooth, and flatten all fabric wrinkles, folds, and body creases. The garment is laid out completely flat, crisp, symmetrical, centered, with generous breathing room around edges. Maintain 100% faithful true-to-life color, fabric texture, weave, buttons, zippers, stitching, and visible branding.`,
+        });
+      } else {
+        const source = await read(body.path);
+        const normalized = await sharp(source, { limitInputPixels: 40000000 })
+          .rotate()
+          .resize({ width: 800, height: 800, fit: "contain", background: "#ffffff" })
+          .extend({ top: 50, bottom: 50, left: 50, right: 50, background: "#ffffff" })
+          .flatten({ background: "#ffffff" })
+          .png()
+          .toBuffer();
+        const hash = cacheKey(user.id, `local-studio-v4:${body.path}`, providerKey);
+        path = `${user.id}/studio-${hash}.png`;
+        const saved = await db.storage.from("vesti-private").upload(path, normalized, {
+          contentType: "image/png",
+          upsert: true,
+        });
+        if (saved.error) throw new StudioError("No pudimos guardar la foto de estudio.");
+      }
     }
     else {
       const state = record.data;
@@ -318,13 +322,32 @@ export async function POST(request: Request) {
       const sheet = await canvas.composite(composites).png().toBuffer();
       const productImage = `data:image/png;base64,${sheet.toString("base64")}`;
       let modelImage = await imageData(state.profile.body);
+      const bodyTraits = [
+        state.profile.bodyType ? `silhouette: ${state.profile.bodyType}` : null,
+        state.profile.skinTone ? `skin tone: ${state.profile.skinTone}` : null,
+        state.profile.hairStyle ? `hair: ${state.profile.hairStyle}` : null,
+        state.profile.height ? `height: ${state.profile.height}` : null,
+      ].filter(Boolean).join(", ");
       path = state.profile.body;
       path = await generate("tryon-max", {
         model_image: modelImage,
         product_image: productImage,
         seed: body.seed,
-        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. Preserve the face pixel-faithfully from the person photo, especially eye shape, eye direction, iris color, eyelids, eyebrows, nose, mouth, expression, hairline and facial proportions. Do not retouch, beautify, enlarge eyes, change gaze, change age or change identity. Preserve the exact body proportions, skin tone and pose. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
+        prompt: `Dress the person in the complete outfit shown on the white reference sheet: ${garments.map((g) => g.name).join(", ")}. ${bodyTraits ? `The model has natural ${bodyTraits}. ` : ""}Preserve the face pixel-faithfully from the person photo, especially eye shape, eye direction, iris color, eyelids, eyebrows, nose, mouth, expression, hairline and facial proportions. Do not retouch, beautify, enlarge eyes, change gaze, change age or change identity. Preserve the exact body proportions, skin tone and pose. Use a seamless pure white studio background, clean even lighting, no furniture or original scenery, no duplicate items, and no extra socks or accessories. Keep each selected garment faithful to its color, cut, texture and branding.`,
       });
+      if (body.useFace && state.profile.face) {
+        try {
+          const faceRef = await imageData(state.profile.face);
+          const tryonImage = await imageData(path);
+          path = await generate("model-swap", {
+            model_image: tryonImage,
+            face_reference: faceRef,
+            prompt: "Preserve the clothing outfit, pose, and background exactly intact. Seamlessly align facial identity, eye shape, smile, and facial structure to the reference face image.",
+          });
+        } catch (swapErr) {
+          console.warn("Model swap fallback to tryon-max output:", swapErr);
+        }
+      }
     }
     const { data: signed, error: signError } = await db.storage
       .from("vesti-private")

@@ -17,6 +17,9 @@ export const garmentSchema = z.object({
   brand: z.string().max(80).optional(),
   warmth: z.number().int().min(0).max(3).optional(),
   formality: z.number().int().min(0).max(3).optional(),
+  material: z.string().max(80).optional(),
+  season: z.string().max(50).optional(),
+  style: z.string().max(50).optional(),
   bounds: z
     .tuple([
       z.number().min(0).max(1),

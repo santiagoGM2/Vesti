@@ -69,3 +69,33 @@ test("inventory accepts more than five accessories and optional brands", () => {
     studioSchema.parse({ action: "tryon", ids: ["one", "one"] }),
   );
 });
+
+test("stylist advice generates tailored fashion recommendations including Valentine's", async () => {
+  const { occasions, getStylistAdvice, weatherPresets } = await import(
+    "../src/lib/recommendations"
+  );
+  const valentineOccasion = occasions.find((o) => o.name === "Cita especial")!;
+  assert.ok(valentineOccasion);
+  const advice = getStylistAdvice(examples, valentineOccasion, 20);
+  assert.ok(advice.toLowerCase().includes("san valentín") || advice.toLowerCase().includes("romántico"));
+
+  assert.equal(weatherPresets.length, 4);
+  assert.equal(weatherPresets[0].label, "Cálido");
+  assert.equal(weatherPresets[3].label, "Frío");
+});
+
+test("garment schema validates season, material, and style attributes", () => {
+  const item = {
+    name: "Vestido de seda",
+    category: "Vestidos" as const,
+    color: "Rojo",
+    season: "Primavera / Verano",
+    material: "Seda",
+    style: "Romántico",
+    wearCount: 2,
+  };
+  const parsed = analysisSchema.parse({ garments: [item] });
+  assert.equal(parsed.garments[0].material, "Seda");
+  assert.equal(parsed.garments[0].season, "Primavera / Verano");
+});
+

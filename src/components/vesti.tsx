@@ -28,6 +28,9 @@ import {
   CloudSun,
   CloudRain,
   Snowflake,
+  DownloadSimple,
+  ShareNetwork,
+  Eye,
 } from "@phosphor-icons/react";
 import { GarmentArt } from "./garment-art";
 import { Brand as Logo } from "./brand";
@@ -86,6 +89,8 @@ export function Vesti() {
   const [selected, setSelected] = useState<string[]>([]),
     [lookTitle, setLookTitle] = useState(""),
     [lookDate, setLookDate] = useState("");
+  const [editingLookId, setEditingLookId] = useState<string | null>(null);
+  const [editorTab, setEditorTab] = useState<"avatar" | "garments" | "original">("avatar");
   const [result, setResult] = useState<{ image: string; path: string } | null>(
       null,
     ),
@@ -399,14 +404,16 @@ export function Vesti() {
       );
     });
   }
-  function edit(ids: string[], title: string) {
+  function edit(ids: string[], title: string, existingLookId?: string) {
     setSelected(ids);
     setLookTitle(title);
     setResult(null);
     setLookDate("");
     setShowAvatar(true);
+    setEditorTab("avatar");
     setSeed(42);
     setUseFace(false);
+    setEditingLookId(existingLookId || null);
     setSheet("editor");
   }
   async function processPhotos(files: FileList | null) {
@@ -600,6 +607,7 @@ export function Vesti() {
         const res = await studio({ action: "tryon", ids: selected, useFace, seed });
         setResult(res);
         setShowAvatar(true);
+        setEditorTab("avatar");
       } finally {
         clearTimeout(timer);
         clearTimeout(timer2);
@@ -608,9 +616,21 @@ export function Vesti() {
   }
   async function saveLook() {
     await run("Guardando tu look…", async () => {
-      await persist({
-        ...latest.current,
-        looks: [
+      let updatedLooks = [...latest.current.looks];
+      if (editingLookId && updatedLooks.some((l) => l.id === editingLookId)) {
+        updatedLooks = updatedLooks.map((l) =>
+          l.id === editingLookId
+            ? {
+                ...l,
+                name: lookTitle.trim() || "Mi look",
+                ids: selected,
+                date: lookDate || undefined,
+                ...(result ? result : { image: l.image, path: l.path }),
+              }
+            : l,
+        );
+      } else {
+        updatedLooks = [
           {
             id: crypto.randomUUID(),
             name: lookTitle.trim() || "Mi look",
@@ -619,12 +639,85 @@ export function Vesti() {
             ...result,
           },
           ...latest.current.looks,
-        ],
+        ];
+      }
+      await persist({
+        ...latest.current,
+        looks: updatedLooks,
       });
       setSheet(null);
       setScreen("Perfil");
       setNotice("Tu look está guardado.");
     });
+  }
+  async function deleteLook(id: string) {
+    await run("Eliminando look…", async () => {
+      const updated = latest.current.looks.filter((l) => l.id !== id);
+      await persist({
+        ...latest.current,
+        looks: updated,
+      });
+      if (editingLookId === id) {
+        setEditingLookId(null);
+        setSheet(null);
+      }
+      setNotice("Look eliminado de tu clóset.");
+    });
+  }
+  async function downloadImage(url: string, filename: string) {
+    try {
+      const res = await fetch(url);
+      const blob = await res.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename.endsWith(".png") || filename.endsWith(".jpg") ? filename : `${filename}.png`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(objectUrl);
+      setNotice("Imagen guardada en tu dispositivo.");
+    } catch {
+      window.open(url, "_blank");
+    }
+  }
+  async function shareLook(image: string, title: string) {
+    try {
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          const res = await fetch(image);
+          const blob = await res.blob();
+          const safeName = (title || "outfit").toLowerCase().replace(/[^a-z0-9]/g, "_") + ".jpg";
+          const file = new File([blob], safeName, { type: blob.type || "image/jpeg" });
+          if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            await navigator.share({
+              title: `Vesti · ${title}`,
+              text: `¡Mira mi outfit en Vesti!`,
+              files: [file],
+            });
+            setNotice("Outfit compartido.");
+            return;
+          }
+        } catch {
+          // Si compartir archivo falla, compartimos enlace/texto
+        }
+        await navigator.share({
+          title: `Vesti · ${title}`,
+          text: `¡Mira mi outfit "${title}" en Vesti!`,
+          url: window.location.href,
+        });
+        setNotice("Look compartido.");
+        return;
+      }
+      if (typeof navigator !== "undefined" && navigator.clipboard) {
+        await navigator.clipboard.writeText(window.location.href);
+        setNotice("Enlace copiado al portapapeles.");
+      }
+    } catch (e) {
+      if ((e as Error)?.name !== "AbortError") {
+        setNotice("No se pudo compartir en este dispositivo.");
+      }
+    }
   }
   async function logWearToday(outfit: Garment[], occasionName: string) {
     await run("Registrando outfit de hoy…", async () => {
@@ -1266,6 +1359,30 @@ export function Vesti() {
                               <CheckCircle size={23} />
                             </button>
                             <button
+                              className="icon-button"
+                              title="Compartir este look"
+                              aria-label={`Compartir combinación para ${occasion.name}`}
+                              onClick={() => {
+                                const names = outfit.map((g) => g.name).join(", ");
+                                if (typeof navigator !== "undefined" && navigator.share) {
+                                  void navigator
+                                    .share({
+                                      title: `Vesti · Look para ${occasion.name}`,
+                                      text: `¡Mira esta combinación para ${occasion.name} en Vesti: ${names}!`,
+                                      url: window.location.href,
+                                    })
+                                    .catch(() => {});
+                                } else if (typeof navigator !== "undefined" && navigator.clipboard) {
+                                  void navigator.clipboard.writeText(
+                                    `Look para ${occasion.name}: ${names}`,
+                                  );
+                                  setNotice("Detalles del look copiados al portapapeles.");
+                                }
+                              }}
+                            >
+                              <ShareNetwork size={22} />
+                            </button>
+                            <button
                               className="primary"
                               onClick={() =>
                                 edit(
@@ -1546,11 +1663,11 @@ export function Vesti() {
             {wardrobe.looks.length ? (
               <div className="saved-grid">
                 {wardrobe.looks.map((look) => (
-                  <article key={look.id}>
+                  <article key={look.id} className="saved-look-card">
                     <button
                       className="saved-look"
                       onClick={() => {
-                        edit(look.ids, look.name);
+                        edit(look.ids, look.name, look.id);
                         setLookDate(look.date || "");
                         setResult(
                           look.path && look.image
@@ -1573,15 +1690,45 @@ export function Vesti() {
                         />
                       )}
                     </button>
-                    <h3>{look.name}</h3>
-                    <p>
-                      {look.date
-                        ? new Date(`${look.date}T12:00:00`).toLocaleDateString(
-                            "es",
-                            { day: "numeric", month: "long" },
-                          )
-                        : "Cuando te apetezca"}
-                    </p>
+                    <div className="saved-look-info">
+                      <div>
+                        <h3>{look.name}</h3>
+                        <p>
+                          {look.date
+                            ? new Date(`${look.date}T12:00:00`).toLocaleDateString(
+                                "es",
+                                { day: "numeric", month: "long" },
+                              )
+                            : "En tu clóset"}
+                        </p>
+                      </div>
+                      <div className="saved-look-actions">
+                        {look.image && (
+                          <button
+                            className="icon-button mini"
+                            title="Descargar foto"
+                            aria-label={`Descargar foto de ${look.name}`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void downloadImage(look.image!, `${look.name}.png`);
+                            }}
+                          >
+                            <DownloadSimple size={15} />
+                          </button>
+                        )}
+                        <button
+                          className="icon-button mini"
+                          title="Eliminar look"
+                          aria-label={`Eliminar ${look.name}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void deleteLook(look.id);
+                          }}
+                        >
+                          <Trash size={15} />
+                        </button>
+                      </div>
+                    </div>
                   </article>
                 ))}
               </div>
@@ -2024,10 +2171,18 @@ export function Vesti() {
               placeholder="Agregar título…"
             />
             <div className="editor-canvas">
-              {result && showAvatar ? (
+              {result && editorTab === "avatar" ? (
                 <Image
                   src={result.image}
                   alt={`Prueba virtual: ${lookTitle}`}
+                  fill
+                  unoptimized
+                  sizes="600px"
+                />
+              ) : editorTab === "original" && (profile.bodyImage || profile.faceImage) ? (
+                <Image
+                  src={(profile.bodyImage || profile.faceImage)!}
+                  alt="Foto original de referencia"
                   fill
                   unoptimized
                   sizes="600px"
@@ -2044,20 +2199,35 @@ export function Vesti() {
             <div className="editor-tools">
               <div className="view-toggle">
                 <button
-                  className={showAvatar ? "active" : ""}
-                  aria-label="Ver avatar"
+                  type="button"
+                  className={editorTab === "avatar" ? "active" : ""}
+                  aria-label="Ver avatar con outfit"
                   disabled={!result}
-                  onClick={() => setShowAvatar(true)}
+                  onClick={() => setEditorTab("avatar")}
                 >
-                  <UserCircle size={23} />
+                  <UserCircle size={21} />
+                  <span>Avatar</span>
                 </button>
                 <button
-                  className={!showAvatar ? "active" : ""}
+                  type="button"
+                  className={editorTab === "garments" ? "active" : ""}
                   aria-label="Ver prendas"
-                  onClick={() => setShowAvatar(false)}
+                  onClick={() => setEditorTab("garments")}
                 >
-                  <TShirt size={23} />
+                  <TShirt size={21} />
+                  <span>Prendas</span>
                 </button>
+                {(profile.bodyImage || profile.faceImage) && (
+                  <button
+                    type="button"
+                    className={editorTab === "original" ? "active" : ""}
+                    aria-label="Ver foto original"
+                    onClick={() => setEditorTab("original")}
+                  >
+                    <Eye size={21} />
+                    <span>Real</span>
+                  </button>
+                )}
               </div>
               <button
                 className="primary"
@@ -2067,6 +2237,38 @@ export function Vesti() {
                 {result ? "Avatar listo" : "Crear avatar"}
               </button>
             </div>
+            {result && (
+              <div className="editor-action-bar">
+                <button
+                  type="button"
+                  className="editor-action-btn"
+                  onClick={() =>
+                    void downloadImage(
+                      result.image,
+                      `${lookTitle.trim() || "mi-look"}.png`,
+                    )
+                  }
+                  aria-label="Descargar foto"
+                >
+                  <DownloadSimple size={18} />
+                  Descargar
+                </button>
+                <button
+                  type="button"
+                  className="editor-action-btn"
+                  onClick={() =>
+                    void shareLook(
+                      result.image,
+                      lookTitle.trim() || "Mi look",
+                    )
+                  }
+                  aria-label="Compartir outfit"
+                >
+                  <ShareNetwork size={18} />
+                  Compartir
+                </button>
+              </div>
+            )}
             <div className="face-toggle-row">
               <label className="toggle-switch">
                 <input
@@ -2140,6 +2342,17 @@ export function Vesti() {
                 onChange={(e) => setLookDate(e.target.value)}
               />
             </label>
+            {editingLookId && (
+              <button
+                type="button"
+                className="delete-look-btn"
+                disabled={!!busy}
+                onClick={() => void deleteLook(editingLookId)}
+              >
+                <Trash size={16} />
+                Eliminar este look de mi clóset
+              </button>
+            )}
           </div>
         )}
         {sheet === "profile" && (

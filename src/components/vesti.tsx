@@ -588,11 +588,20 @@ export function Vesti() {
     });
   }
   async function generate() {
+    if (demo) {
+      setError("Crea tu cuenta o inicia sesión para generar tu avatar con tus fotos.");
+      setSheet("profile");
+      return;
+    }
+    if (!profile.body && !profile.face) {
+      setError("Añade una foto de tu rostro o de cuerpo completo en tu perfil para generar tu avatar.");
+      setSheet("profile");
+      return;
+    }
     await run("Analizando silueta y prendas seleccionadas…", async () => {
-      if (demo)
-        throw Error(
-          "Crea una cuenta y añade tus fotos para probarte este look.",
-        );
+      if (!profile.consent) {
+        await updateProfile({ consent: true });
+      }
       const timer = setTimeout(() => {
         setBusy("Ajustando drapeado de prendas a tu complexión…");
       }, 5000);

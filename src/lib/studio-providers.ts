@@ -1,3 +1,7 @@
+import dns from "node:dns";
+try {
+  dns.setDefaultResultOrder?.("ipv4first");
+} catch {}
 import {
   analysisSchema,
   FASHN_OPTIONS,
@@ -90,8 +94,14 @@ export async function submitFashn(
       inputs: { ...inputs, ...FASHN_OPTIONS },
     }),
   });
-  if (!response.ok) throw providerError("FASHN", response.status);
-  const data = await response.json();
+    if (!response.ok) {
+      try {
+        const errJson = await response.json();
+        console.error("FASHN error detail:", response.status, errJson);
+      } catch {}
+      throw providerError("FASHN", response.status);
+    }
+    const data = await response.json();
   if (data.error || typeof data.id !== "string")
     throw new StudioError(
       "FASHN no aceptó la imagen. Revisa el formato y el saldo.",

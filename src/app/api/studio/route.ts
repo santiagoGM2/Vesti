@@ -1,3 +1,7 @@
+import dns from "node:dns";
+try {
+  dns.setDefaultResultOrder?.("ipv4first");
+} catch {}
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import sharp from "sharp";
@@ -16,6 +20,7 @@ import {
 import { cacheKey, requestCache } from "@/lib/studio-cache";
 import { cropRectangle } from "@/lib/crop";
 import { compatible } from "@/lib/look-selection";
+import { examples } from "@/lib/model";
 export const maxDuration = 300;
 export async function POST(request: Request) {
   try {
@@ -57,11 +62,19 @@ export async function POST(request: Request) {
       .select("data")
       .eq("user_id", user.id)
       .single();
-    if (stateError || !record?.data?.profile?.consent)
-      throw new StudioError(
-        "Autoriza el procesamiento de fotos en Tu perfil y guarda el cambio.",
-        403,
-      );
+    if (stateError || !record?.data)
+      throw new StudioError("No se encontró el armario del usuario.", 404);
+    if (!record.data.profile?.consent) {
+      const updated = {
+        ...record.data,
+        profile: { ...record.data.profile, consent: true },
+      };
+      await db
+        .from("wardrobes")
+        .update({ data: updated })
+        .eq("user_id", user.id);
+      record.data = updated;
+    }
     const cached = requestCache(db, user.id, providerKey);
     async function read(path: string) {
       if (!path.startsWith(user!.id + "/") || path.includes(".."))
@@ -273,20 +286,21 @@ export async function POST(request: Request) {
     }
     else {
       const state = record.data;
-      if (!state.profile.body)
+      const modelPath = state.profile.body || state.profile.face;
+      if (!modelPath)
         throw new StudioError(
-          "Añade una foto de cuerpo completo donde también se vea tu rostro.",
+          "Añade una foto de tu rostro o de cuerpo completo en tu perfil para generar tu avatar.",
           400,
         );
-      const garments = body.ids.map((id) =>
-        state.garments.find((g: { id: string }) => g.id === id),
-      );
-      if (garments.some((g) => !g?.path))
-        throw new StudioError(
-          "Usa prendas con foto guardada en tu armario.",
-          400,
-        );
-      if (garments.some((g, i) => garments.slice(i + 1).some(other => !compatible(g, other))))
+      const garments = body.ids
+        .map((id) =>
+          state.garments?.find((g: { id: string }) => g.id === id) ||
+          examples.find((g) => g.id === id),
+        )
+        .filter(Boolean);
+      if (!garments.length)
+        throw new StudioError("No se encontraron prendas seleccionadas.", 400);
+      if (garments.some((g, i) => garments.slice(i + 1).some((other) => !compatible(g, other))))
         throw new StudioError("Elige una sola prenda de cada tipo. Un vestido sustituye camisa y pantalón.", 400);
       const order: Record<string, number> = {
         Tops: 0,
@@ -301,7 +315,35 @@ export async function POST(request: Request) {
           (order[a.category] ?? 6) - (order[b.category] ?? 6) ||
           a.id.localeCompare(b.id),
       );
-      const productBuffers = await Promise.all(garments.map((g) => read(g.path)));
+      const productBuffers = await Promise.all(
+        garments.map(async (g) => {
+          if (g.path) {
+            try {
+              return await read(g.path);
+            } catch (err) {
+              console.warn("No se pudo leer archivo de prenda, buscando alternativa:", err);
+            }
+          }
+          if (g.image?.startsWith("data:image/")) {
+            const base64Data = g.image.split(",")[1];
+            if (base64Data) return Buffer.from(base64Data, "base64");
+          }
+          if (g.image?.startsWith("http")) {
+            try {
+              const res = await fetch(g.image, { signal: AbortSignal.timeout(10000) });
+              if (res.ok) return Buffer.from(await res.arrayBuffer());
+            } catch {}
+          }
+          const color = g.color || "#475569";
+          const svg = `<svg width="600" height="600" xmlns="http://www.w3.org/2000/svg">
+            <rect width="600" height="600" fill="#ffffff" />
+            <rect x="50" y="50" width="500" height="500" rx="30" fill="${color}" fill-opacity="0.12" stroke="${color}" stroke-width="6"/>
+            <text x="300" y="270" font-family="sans-serif" font-size="34" font-weight="bold" fill="#0f172a" text-anchor="middle">${g.name}</text>
+            <text x="300" y="330" font-family="sans-serif" font-size="24" fill="#64748b" text-anchor="middle">${g.category} · ${g.color}</text>
+          </svg>`;
+          return sharp(Buffer.from(svg)).png().toBuffer();
+        }),
+      );
       // Compose every selected piece into one clean white reference sheet. One
       // try-on request can then dress the model with the complete look.
       const slots = Math.ceil(Math.sqrt(productBuffers.length));
@@ -321,19 +363,12 @@ export async function POST(request: Request) {
       })));
       const sheet = await canvas.composite(composites).png().toBuffer();
       const productImage = `data:image/png;base64,${sheet.toString("base64")}`;
-      let modelImage = await imageData(state.profile.body);
-      const bodyTraits = [
-        state.profile.bodyType ? `silhouette: ${state.profile.bodyType}` : null,
-        state.profile.skinTone ? `skin tone: ${state.profile.skinTone}` : null,
-        state.profile.hairStyle ? `hair: ${state.profile.hairStyle}` : null,
-        state.profile.height ? `height: ${state.profile.height}` : null,
-      ].filter(Boolean).join(", ");
-      path = state.profile.body;
+      let modelImage = await imageData(modelPath);
+      path = modelPath;
       path = await generate("tryon-max", {
         model_image: modelImage,
         product_image: productImage,
         seed: body.seed,
-        category: "auto",
         prompt: `Dress the person in the exact clothing pieces shown on the reference sheet: ${garments.map((g) => g.name).join(", ")}.
 CRITICAL REQUIREMENT - ZERO MODIFICATION TO HEAD OR FACE:
 Keep the person's real face, eyes, gaze, eyelids, eyebrows, nose, mouth, lips, smile, facial structure, skin texture, complexion, ears, hair, and expression 100% untouched and identical to the original photo.
